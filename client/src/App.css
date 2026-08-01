@@ -1,0 +1,136 @@
+/* App.css — component-specific styles */
+
+/* ── Animations ──────────────────────────────────────────── */
+.boot-logo {
+  animation: fadeInUp 0.8s ease-out;
+}
+
+.boot-subtitle {
+  animation: fadeInUp 0.8s ease-out 0.1s both;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+
+.boot-status {
+  animation: fadeInUp 0.8s ease-out 0.2s both;
+}
+
+.price-cards {
+  animation: fadeInUp 0.8s ease-out 0.15s both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Price Cards ─────────────────────────────────────────── */
+.price-cards {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.price-card {
+  flex: 1;
+  padding: 20px 24px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.price-card.live {
+  border-color: rgba(34, 197, 94, 0.15);
+  box-shadow: var(--shadow-card), 0 0 30px rgba(34, 197, 94, 0.05);
+}
+
+.price-card-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.coin-icon {
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.price-card-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+.price-card-live {
+  margin-top: 8px;
+  font-size: 0.7rem;
+  color: var(--accent-green);
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.price-card-live .status-dot {
+  width: 5px;
+  height: 5px;
+  margin-right: 2px;
+}
+
+/* ── Glow animation on price updates ─────────────────────── */
+@keyframes priceGlow {
+  0% { box-shadow: var(--shadow-card), 0 0 20px rgba(34, 197, 94, 0.2); }
+  100% { box-shadow: var(--shadow-card), 0 0 30px rgba(34, 197, 94, 0.05); }
+}
+
+.price-card.live {
+  animation: priceGlow 1s ease-out;
+}
+
+/* ── Status Header ───────────────────────────────────────── */
+.boot-status-header {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-glass);
+  margin-bottom: 4px;
+}
+
+/* ── Portfolio Card ──────────────────────────────────────── */
+.portfolio-card {
+  animation: fadeInUp 0.8s ease-out 0.3s both;
+}
+
+.portfolio-total {
+  font-size: 1rem !important;
+  font-weight: 600;
+}
+
+/* ── Server Info ─────────────────────────────────────────── */
+.server-info {
+  opacity: 0.6;
+  animation: fadeInUp 0.8s ease-out 0.35s both;
+}

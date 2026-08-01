@@ -1,0 +1,16 @@
+{
+  "name": "crypto-options-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "sql.js": "^1.12.0",
+    "ws": "^8.18.0"
+  }
+}
