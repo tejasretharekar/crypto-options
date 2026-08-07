@@ -26,13 +26,19 @@ export default function Dashboard({ prices, systemStatus }) {
             <div className="currency-selector">
               <button 
                 className={`currency-btn ${currency === 'BTC' ? 'active' : ''}`}
-                onClick={() => setCurrency('BTC')}
+                onClick={() => {
+                  setCurrency('BTC');
+                  setSelectedOption(null);
+                }}
               >
                 Bitcoin (BTC)
               </button>
               <button 
                 className={`currency-btn ${currency === 'ETH' ? 'active' : ''}`}
-                onClick={() => setCurrency('ETH')}
+                onClick={() => {
+                  setCurrency('ETH');
+                  setSelectedOption(null);
+                }}
               >
                 Ethereum (ETH)
               </button>
@@ -46,6 +52,7 @@ export default function Dashboard({ prices, systemStatus }) {
           <OptionChain 
             currency={currency} 
             underlyingPrice={underlyingPrice} 
+            selectedOption={selectedOption}
             onSelectOption={setSelectedOption} 
           />
         </div>
