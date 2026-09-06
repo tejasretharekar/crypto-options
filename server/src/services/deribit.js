@@ -237,6 +237,72 @@ export class DeribitClient extends EventEmitter {
     });
   }
 
+  async getTradingViewChartData(instrumentName, resolution = '60', startTimestamp, endTimestamp) {
+    const now = Date.now();
+    const end = endTimestamp || now;
+    let start = startTimestamp;
+    if (!start) {
+      if (resolution === '1' || resolution === '3' || resolution === '5') {
+        start = end - 6 * 3600 * 1000;
+      } else if (resolution === '15' || resolution === '30') {
+        start = end - 24 * 3600 * 1000;
+      } else if (resolution === '60') {
+        start = end - 7 * 24 * 3600 * 1000;
+      } else if (resolution === '240') {
+        start = end - 30 * 24 * 3600 * 1000;
+      } else {
+        start = end - 90 * 24 * 3600 * 1000;
+      }
+    }
+
+    try {
+      if (this.isConnected) {
+        const res = await this._send('public/get_tradingview_chart_data', {
+          instrument_name: instrumentName,
+          start_timestamp: Math.floor(start),
+          end_timestamp: Math.floor(end),
+          resolution: resolution.toString(),
+        });
+        return this._formatCandles(res);
+      }
+    } catch (err) {
+      console.warn(`[Deribit WS] chart data error (${err.message}), trying REST fallback`);
+    }
+
+    const url = `https://www.deribit.com/api/v2/public/get_tradingview_chart_data?instrument_name=${encodeURIComponent(instrumentName)}&start_timestamp=${Math.floor(start)}&end_timestamp=${Math.floor(end)}&resolution=${encodeURIComponent(resolution)}`;
+    const resp = await fetch(url);
+    const json = await resp.json();
+    if (json.error) {
+      throw new Error(json.error.message || 'Deribit chart API error');
+    }
+    return this._formatCandles(json.result);
+  }
+
+  _formatCandles(raw) {
+    if (!raw || !Array.isArray(raw.ticks) || raw.ticks.length === 0) {
+      return [];
+    }
+    const candles = [];
+    for (let i = 0; i < raw.ticks.length; i++) {
+      candles.push({
+        time: Math.floor(raw.ticks[i] / 1000),
+        open: raw.open[i],
+        high: raw.high[i],
+        low: raw.low[i],
+        close: raw.close[i],
+        volume: raw.volume ? raw.volume[i] : 0,
+      });
+    }
+    candles.sort((a, b) => a.time - b.time);
+    const unique = [];
+    for (const c of candles) {
+      if (!unique.length || unique[unique.length - 1].time !== c.time) {
+        unique.push(c);
+      }
+    }
+    return unique;
+  }
+
   /* ── Heartbeat ─────────────────────────────────────────── */
   async _startHeartbeat() {
     try {

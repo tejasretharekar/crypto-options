@@ -20,8 +20,15 @@ async function request(path, options = {}) {
 /* ── Health & Status ─────────────────────────────────────── */
 export const getHealth = () => request('/health');
 
-/* ── Prices ──────────────────────────────────────────────── */
+/* ── Prices & Charts ─────────────────────────────────────── */
 export const getPrices = () => request('/prices');
+
+export const getChartData = (instrument = 'BTC-PERPETUAL', resolution = '60', start, end) => {
+  const params = new URLSearchParams({ instrument, resolution });
+  if (start) params.append('start', start);
+  if (end) params.append('end', end);
+  return request(`/chart-data?${params.toString()}`);
+};
 
 /* ── Portfolio ───────────────────────────────────────────── */
 export const getPortfolio = () => request('/portfolio');

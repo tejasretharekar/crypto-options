@@ -63,4 +63,27 @@ router.get('/ticker/:name', async (req, res) => {
   }
 });
 
+/* ── GET /api/chart-data ────────────────────────────────── */
+router.get('/chart-data', async (req, res) => {
+  try {
+    const instrument = req.query.instrument || 'BTC-PERPETUAL';
+    const resolution = req.query.resolution || '60';
+    const start = req.query.start ? Number(req.query.start) : undefined;
+    const end = req.query.end ? Number(req.query.end) : undefined;
+
+    const deribit = getDeribitClient();
+    const candles = await deribit.getTradingViewChartData(instrument, resolution, start, end);
+
+    res.json({
+      instrument,
+      resolution,
+      count: candles.length,
+      candles,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
+
