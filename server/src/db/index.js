@@ -141,3 +141,7 @@ export function updateCash(newCash) {
 export function getDb() {
   return db;
 }
+
+export function isDatabaseReady() {
+  return Boolean(db);
+}

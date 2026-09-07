@@ -536,6 +536,25 @@ button {
   font-size: 0.72rem;
 }
 
+.ath-badge {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+.ath-distance {
+  opacity: 0.75;
+  font-size: 0.7rem;
+}
+
 /* ── Crosshair HUD ── */
 .ohlcv-hud {
   display: flex;

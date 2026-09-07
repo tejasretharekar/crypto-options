@@ -3,7 +3,7 @@ import cors from 'cors';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 
-import { initDatabase } from './db/index.js';
+import { initDatabase, isDatabaseReady } from './db/index.js';
 import { getDeribitClient } from './services/deribit.js';
 import portfolioRoutes from './routes/portfolio.js';
 import pricesRoutes from './routes/prices.js';
@@ -31,7 +31,7 @@ app.get('/api/health', (_req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     subsystems: {
-      database: true,
+      database: isDatabaseReady(),
       deribit: deribit.isConnected,
     },
   });
@@ -43,6 +43,10 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 
 // Track connected clients
 const clients = new Set();
+
+wss.on('error', (err) => {
+  console.error('[WS] Server error:', err.message);
+});
 
 wss.on('connection', (ws) => {
   clients.add(ws);
@@ -72,6 +76,24 @@ function broadcast(data) {
       client.send(msg);
     }
   }
+}
+
+function listen() {
+  return new Promise((resolve, reject) => {
+    const onError = (err) => {
+      server.off('listening', onListening);
+      reject(err);
+    };
+
+    const onListening = () => {
+      server.off('error', onError);
+      resolve();
+    };
+
+    server.once('error', onError);
+    server.once('listening', onListening);
+    server.listen(PORT);
+  });
 }
 
 /* ── Bootstrap ───────────────────────────────────────────── */
@@ -104,16 +126,14 @@ async function start() {
     broadcast({ type: 'deribit_status', connected: false });
   });
 
-  try {
-    await deribit.connect();
-    console.log('[Boot] ✓ Deribit connected');
-  } catch (err) {
-    console.error('[Boot] ⚠ Deribit connection failed (will retry):', err.message);
-    // Non-fatal — we retry in the background
-  }
+  deribit.on('error', (err) => {
+    console.error('[Boot] Deribit error:', err.message);
+    broadcast({ type: 'deribit_status', connected: false });
+  });
 
   // 3. Start HTTP server
-  server.listen(PORT, () => {
+  try {
+    await listen();
     console.log(`
 ╔══════════════════════════════════════════════════╗
 ║   Crypto Options Trader — Server                 ║
@@ -124,7 +144,18 @@ async function start() {
 ║   Deribit   : ${deribit.isConnected ? '✓ Connected' : '⚠ Reconnecting...'}                      ║
 ╚══════════════════════════════════════════════════╝
     `);
-  });
+  } catch (err) {
+    console.error(`[Boot] ✕ Server failed on port ${PORT}:`, err.message);
+    process.exit(1);
+  }
+
+  try {
+    await deribit.connect();
+    console.log('[Boot] ✓ Deribit connected');
+  } catch (err) {
+    console.error('[Boot] ⚠ Deribit connection failed (will retry):', err.message);
+    // Non-fatal — we retry in the background
+  }
 }
 
 start();

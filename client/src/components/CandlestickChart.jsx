@@ -8,7 +8,7 @@ import {
   CrosshairMode,
   LineStyle,
 } from 'lightweight-charts';
-import { getChartData } from '../services/api';
+import { getChartData, getATH } from '../services/api';
 
 const RESOLUTIONS = [
   { label: '1m', value: '1', intervalSec: 60 },
@@ -35,6 +35,8 @@ export default function CandlestickChart({
   const [resolution, setResolution] = useState('60');
   const [chartType, setChartType] = useState('candles'); // 'candles' | 'line'
   const [loading, setLoading] = useState(true);
+  const [athValue, setAthValue] = useState(null);
+  const athLineRef = useRef(null);
   const [error, setError] = useState(null);
   const [hoverData, setHoverData] = useState(null);
   const [stats, setStats] = useState({ high24h: null, low24h: null, change24h: null, changePct24h: null });
@@ -315,6 +317,56 @@ export default function CandlestickChart({
     }
   }, [selectedOption, underlyingPrice]);
 
+  /* ── 6. ATH (All-Time High) Overlay ─────────────────────── */
+  useEffect(() => {
+    let active = true;
+    
+    // Only fetch ATH for BTC
+    if (currency === 'BTC') {
+      getATH('BTC')
+        .then((data) => {
+          if (active && data && data.ath) {
+            setAthValue(data.ath);
+          }
+        })
+        .catch((err) => console.warn('Failed to fetch ATH:', err));
+    } else {
+      setAthValue(null);
+    }
+    
+    return () => {
+      active = false;
+    };
+  }, [currency]);
+
+  // Draw ATH line
+  useEffect(() => {
+    if (!candleSeriesRef.current) return;
+
+    if (athLineRef.current) {
+      candleSeriesRef.current.removePriceLine(athLineRef.current);
+      athLineRef.current = null;
+    }
+
+    if (athValue !== null) {
+      athLineRef.current = candleSeriesRef.current.createPriceLine({
+        price: athValue,
+        color: '#fbbf24', // Gold color for ATH
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: `ATH: $${athValue.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`,
+      });
+    }
+  }, [athValue]);
+
+  // Real-time ATH breaking check
+  useEffect(() => {
+    if (athValue !== null && underlyingPrice > athValue) {
+      setAthValue(underlyingPrice);
+    }
+  }, [underlyingPrice, athValue]);
+
   const handleResetZoom = () => {
     chartInstanceRef.current?.timeScale().fitContent();
   };
@@ -345,6 +397,16 @@ export default function CandlestickChart({
               <span className={`price-change ${isPositive ? 'up' : 'down'}`}>
                 {isPositive ? '+' : ''}{stats.changePct24h.toFixed(2)}%
                 <span className="change-usd">({isPositive ? '+' : ''}${stats.change24h?.toFixed(1)})</span>
+              </span>
+            )}
+            {athValue !== null && currency === 'BTC' && (
+              <span className="ath-badge">
+                ATH: ${athValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                {underlyingPrice && (
+                  <span className="ath-distance">
+                    ({((underlyingPrice - athValue) / athValue * 100).toFixed(1)}%)
+                  </span>
+                )}
               </span>
             )}
           </div>

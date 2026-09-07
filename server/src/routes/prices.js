@@ -7,6 +7,7 @@
  */
 import { Router } from 'express';
 import { getDeribitClient } from '../services/deribit.js';
+import { getATH } from '../services/ath.js';
 
 const router = Router();
 
@@ -85,5 +86,20 @@ router.get('/chart-data', async (req, res) => {
   }
 });
 
-export default router;
+/* ── GET /api/ath ───────────────────────────────────────── */
+router.get('/ath', async (req, res) => {
+  try {
+    const currency = req.query.currency || 'BTC';
+    const athData = await getATH(currency);
+    
+    if (!athData) {
+      return res.status(404).json({ error: 'ATH data not available' });
+    }
+    
+    res.json(athData);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
+export default router;

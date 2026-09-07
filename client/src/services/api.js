@@ -30,6 +30,8 @@ export const getChartData = (instrument = 'BTC-PERPETUAL', resolution = '60', st
   return request(`/chart-data?${params.toString()}`);
 };
 
+export const getATH = (currency = 'BTC') => request(`/ath?currency=${currency}`);
+
 /* ── Portfolio ───────────────────────────────────────────── */
 export const getPortfolio = () => request('/portfolio');
 export const getPositions = () => request('/positions');

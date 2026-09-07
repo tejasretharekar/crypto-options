@@ -74,8 +74,7 @@ export class DeribitClient extends EventEmitter {
         this.emit('disconnected');
 
         if (this.shouldReconnect) {
-          console.log(`[Deribit] Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
-          this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_DELAY);
+          this._scheduleReconnect();
         }
       });
 
@@ -315,6 +314,16 @@ export class DeribitClient extends EventEmitter {
 
   _stopHeartbeat() {
     clearInterval(this.heartbeatTimer);
+  }
+
+  _scheduleReconnect() {
+    clearTimeout(this.reconnectTimer);
+    console.log(`[Deribit] Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.connect().catch((err) => {
+        console.error('[Deribit] Reconnect failed:', err.message);
+      });
+    }, RECONNECT_DELAY);
   }
 
   /* ── Getters ───────────────────────────────────────────── */
