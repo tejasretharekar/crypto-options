@@ -19,6 +19,24 @@ const RESOLUTIONS = [
   { label: '1D', value: '1D', intervalSec: 86400 },
 ];
 
+function calculateEma(candles, period) {
+  if (!candles || candles.length === 0) return [];
+  const k = 2 / (period + 1);
+  const result = [];
+  let prevEma = candles[0].close;
+
+  for (let i = 0; i < candles.length; i++) {
+    const price = candles[i].close;
+    const currentEma = i === 0 ? price : price * k + prevEma * (1 - k);
+    result.push({
+      time: candles[i].time,
+      value: currentEma,
+    });
+    prevEma = currentEma;
+  }
+  return result;
+}
+
 export default function CandlestickChart({
   currency = 'BTC',
   underlyingPrice,
@@ -29,13 +47,14 @@ export default function CandlestickChart({
   const candleSeriesRef = useRef(null);
   const volumeSeriesRef = useRef(null);
   const lineSeriesRef = useRef(null);
+  const emaFastSeriesRef = useRef(null);
+  const emaSlowSeriesRef = useRef(null);
   const strikeLineRef = useRef(null);
   const rawCandlesRef = useRef([]);
 
   const [resolution, setResolution] = useState('60');
   const [chartType, setChartType] = useState('candles'); // 'candles' | 'line'
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [showEma, setShowEma] = useState(true);
   const [hoverData, setHoverData] = useState(null);
   const [stats, setStats] = useState({ high24h: null, low24h: null, change24h: null, changePct24h: null });
   const [isExpanded, setIsExpanded] = useState(false);
@@ -119,16 +138,44 @@ export default function CandlestickChart({
       borderDownColor: '#ef4444',
       wickUpColor: '#22c55e',
       wickDownColor: '#ef4444',
+      priceFormat: {
+        type: 'price',
+        precision: 1,
+        minMove: 0.1,
+      },
     });
     candleSeriesRef.current = candleSeries;
 
-    // Line Series
+    // Line Series fallback
     const lineSeries = chart.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
       visible: false,
+      priceFormat: {
+        type: 'price',
+        precision: 1,
+        minMove: 0.1,
+      },
     });
     lineSeriesRef.current = lineSeries;
+
+    // Fast EMA (9)
+    const emaFast = chart.addSeries(LineSeries, {
+      color: '#38bdf8',
+      lineWidth: 1,
+      lineStyle: LineStyle.Solid,
+      priceLineVisible: false,
+    });
+    emaFastSeriesRef.current = emaFast;
+
+    // Slow EMA (21)
+    const emaSlow = chart.addSeries(LineSeries, {
+      color: '#a855f7',
+      lineWidth: 1,
+      lineStyle: LineStyle.Solid,
+      priceLineVisible: false,
+    });
+    emaSlowSeriesRef.current = emaSlow;
 
     // Crosshair listener
     chart.subscribeCrosshairMove((param) => {
@@ -182,12 +229,17 @@ export default function CandlestickChart({
     }
   }, [chartType]);
 
+  useEffect(() => {
+    if (!emaFastSeriesRef.current || !emaSlowSeriesRef.current) return;
+    emaFastSeriesRef.current.applyOptions({ visible: showEma });
+    emaSlowSeriesRef.current.applyOptions({ visible: showEma });
+  }, [showEma]);
+
   /* ── 3. Fetch Historical OHLCV Candles ─────────────────── */
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(null);
 
+    // Fetch silently without intrusive buffer overlay so chart remains visible
     getChartData(instrumentName, resolution)
       .then((data) => {
         if (!active) return;
@@ -218,6 +270,11 @@ export default function CandlestickChart({
           lineSeriesRef.current?.setData(lineData);
           volumeSeriesRef.current?.setData(volumeData);
 
+          const emaFastData = calculateEma(candleData, 9);
+          const emaSlowData = calculateEma(candleData, 21);
+          emaFastSeriesRef.current?.setData(emaFastData);
+          emaSlowSeriesRef.current?.setData(emaSlowData);
+
           const lastCandle = candles[candles.length - 1];
           const firstCandle = candles[0];
           const highs = candles.map((c) => c.high);
@@ -235,16 +292,11 @@ export default function CandlestickChart({
           });
 
           chartInstanceRef.current?.timeScale().fitContent();
-        } else {
-          setError('No historical candlestick data available for this range');
         }
-        setLoading(false);
       })
       .catch((err) => {
         if (!active) return;
         console.error('Failed to load chart candles:', err);
-        setError(err.message || 'Failed to load chart');
-        setLoading(false);
       });
 
     return () => {
@@ -329,18 +381,21 @@ export default function CandlestickChart({
         <div className="chart-symbol-info">
           <div className="symbol-title">
             <span className="symbol-name">{instrumentName}</span>
-            <span className="market-badge">Live Deribit Feed</span>
+            <span className="market-badge">Spot Perpetuals</span>
             {selectedOption && (
               <span className={`strike-tag ${selectedOption.option_type}`}>
-                Strike: ${selectedOption.strike?.toLocaleString()} {selectedOption.option_type?.toUpperCase()}
+                Selected: ${selectedOption.strike?.toLocaleString()} {selectedOption.option_type?.toUpperCase()}
               </span>
             )}
           </div>
 
           <div className="symbol-pricing">
-            <span className="current-price">
-              ${underlyingPrice?.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) || '---'}
-            </span>
+            <div className="mark-label-wrap">
+              <span className="mark-label">MARK</span>
+              <span className="current-price">
+                ${underlyingPrice?.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) || '---'}
+              </span>
+            </div>
             {stats.changePct24h !== null && (
               <span className={`price-change ${isPositive ? 'up' : 'down'}`}>
                 {isPositive ? '+' : ''}{stats.changePct24h.toFixed(2)}%
@@ -394,6 +449,13 @@ export default function CandlestickChart({
 
           <div className="view-group">
             <button
+              className={`view-btn ${showEma ? 'active' : ''}`}
+              onClick={() => setShowEma(!showEma)}
+              title="Toggle EMA Indicators"
+            >
+              EMA
+            </button>
+            <button
               className={`view-btn ${chartType === 'candles' ? 'active' : ''}`}
               onClick={() => setChartType('candles')}
               title="Candlestick Chart"
@@ -438,19 +500,8 @@ export default function CandlestickChart({
         </div>
       </div>
 
-      {/* Canvas Wrapper */}
+      {/* Canvas Wrapper - no buffering overlay */}
       <div className="chart-canvas-wrapper">
-        {loading && (
-          <div className="chart-loading-overlay">
-            <div className="chart-spinner" />
-            <span>Loading {instrumentName} candles…</span>
-          </div>
-        )}
-        {error && (
-          <div className="chart-error-overlay">
-            <span>⚠ {error}</span>
-          </div>
-        )}
         <div ref={chartContainerRef} className="chart-canvas" />
       </div>
     </div>

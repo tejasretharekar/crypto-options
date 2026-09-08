@@ -104,6 +104,10 @@ async function start() {
     broadcast({ type: 'deribit_status', connected: false });
   });
 
+  deribit.on('error', (err) => {
+    console.warn('[Deribit Client Error]', err.message);
+  });
+
   try {
     await deribit.connect();
     console.log('[Boot] ✓ Deribit connected');
