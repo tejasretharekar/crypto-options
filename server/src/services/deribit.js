@@ -178,6 +178,11 @@ export class DeribitClient extends EventEmitter {
         data,
       });
     }
+
+    // Mark price updates for options
+    if (channel === 'markprice.options.btc_usd') {
+      this.emit('markprice_options', data);
+    }
   }
 
   /* ── Subscriptions ─────────────────────────────────────── */
@@ -188,6 +193,7 @@ export class DeribitClient extends EventEmitter {
         channels: [
           'deribit_price_index.btc_usd',
           'deribit_price_index.eth_usd',
+          'markprice.options.btc_usd',
         ],
       });
       console.log('[Deribit] Subscribed to BTC/ETH index prices');

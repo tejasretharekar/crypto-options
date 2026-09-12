@@ -58,3 +58,20 @@ export const closePosition = (positionId) =>
   request(`/position/${positionId}/close`, {
     method: 'POST',
   });
+
+export async function getOptionMarkPriceCandles(instrument, resolution = '60', start, end) {
+  const query = new URLSearchParams({ instrument, resolution });
+  if (start) query.append('start', start);
+  if (end) query.append('end', end);
+  return request('/option-mark-price-candles?' + query.toString());
+}
+
+export async function getOptionATH(instrument) {
+  return request('/option-ath?instrument=' + instrument);
+}
+
+export async function trackExpiry(currency, expiryDate) {
+  return request('/mark-price-collector/track?currency=' + currency + '&expiryDate=' + expiryDate, {
+    method: 'POST'
+  });
+}

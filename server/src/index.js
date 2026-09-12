@@ -9,6 +9,8 @@ import portfolioRoutes from './routes/portfolio.js';
 import pricesRoutes from './routes/prices.js';
 import tradingRoutes from './routes/trading.js';
 import optionChainRoutes from './routes/optionChain.js';
+import markPriceRoutes from './routes/markPrice.js';
+import { getMarkPriceCollector } from './services/markPriceCollector.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -22,6 +24,7 @@ app.use('/api', portfolioRoutes);
 app.use('/api', pricesRoutes);
 app.use('/api', tradingRoutes);
 app.use('/api', optionChainRoutes);
+app.use('/api', markPriceRoutes);
 
 /* ── Health check (includes subsystem status) ────────────── */
 app.get('/api/health', (_req, res) => {
