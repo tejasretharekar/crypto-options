@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getOptionChain } from '../services/api';
+import { getOptionChain, trackExpiry } from '../services/api';
 import { blackScholes, btcToUsd } from '../utils/blackScholes';
 import OptionCandlestickChart from './OptionCandlestickChart';
 
@@ -34,6 +34,8 @@ export default function OptionChain({ currency, underlyingPrice, selectedOption,
 
   useEffect(() => {
     if (!selectedExpiry || !chainData) return;
+    
+    trackExpiry(currency, selectedExpiry).catch(console.error);
 
     let active = true;
     const fetchTickers = async () => {

@@ -110,8 +110,14 @@ async function start() {
     process.exit(1);
   }
 
+  getMarkPriceCollector().initialize();
+
   // 2. Connect to Deribit
   const deribit = getDeribitClient();
+
+  deribit.on('markprice_options', (data) => {
+    getMarkPriceCollector().onData(data);
+  });
 
   deribit.on('price_update', (update) => {
     // Broadcast price updates to all connected clients
