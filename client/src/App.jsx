@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import Dashboard from './components/Dashboard';
 
-const API_BASE = 'http://localhost:3001/api';
-const WS_URL = 'ws://localhost:3001/ws';
+const API_BASE = import.meta.env.VITE_API_URL;
+const WS_URL = import.meta.env.VITE_WS_URL;
 const RETRY_DELAY_MS = 2000;
 
 function App() {

@@ -1,7 +1,7 @@
 /**
  * API client service for the Crypto Options Trader backend.
  */
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -75,3 +75,5 @@ export async function trackExpiry(currency, expiryDate) {
     method: 'POST'
   });
 }
+export const getOptionTickers = (currency = 'BTC', expiryDate) =>
+  request(`/option-chain/tickers?currency=${currency}&expiryDate=${expiryDate}`);
