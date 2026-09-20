@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getOptionChain, trackExpiry } from '../services/api';
+import { getOptionChain, trackExpiry, getOptionTickers } from '../services/api';
 import { blackScholes, btcToUsd } from '../utils/blackScholes';
 import OptionCandlestickChart from './OptionCandlestickChart';
 
@@ -40,9 +40,7 @@ export default function OptionChain({ currency, underlyingPrice, selectedOption,
     let active = true;
     const fetchTickers = async () => {
       try {
-        const res = await fetch(`http://localhost:3001/api/option-chain/tickers?currency=${currency}&expiryDate=${selectedExpiry}`);
-        if (!res.ok) throw new Error('Failed to fetch tickers');
-        const data = await res.json();
+        const data = await getOptionTickers(currency, selectedExpiry);
         if (active) setTickers(data);
       } catch (err) {
         console.error(err);
@@ -183,3 +181,7 @@ export default function OptionChain({ currency, underlyingPrice, selectedOption,
     </div>
   );
 }
+
+
+
+
