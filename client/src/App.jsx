@@ -2,6 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import './App.css';
 import Dashboard from './components/Dashboard';
 
+const API_BASE = 'http://localhost:3001/api';
+const WS_URL = 'ws://localhost:3001/ws';
+const RETRY_DELAY_MS = 2000;
+
 function App() {
   const [apiStatus, setApiStatus] = useState({ state: 'connecting', data: null });
   const [wsStatus, setWsStatus] = useState({ state: 'connecting', data: null });
@@ -15,72 +19,112 @@ function App() {
 
   /* ── Check REST API health ───────────────────────── */
   useEffect(() => {
-    fetch('http://localhost:3001/api/health')
-      .then((res) => res.json())
-      .then((data) => {
+    let cancelled = false;
+    let retryTimer;
+
+    const checkHealth = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/health`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const data = await res.json();
+        if (cancelled) return;
+
         setApiStatus({ state: 'connected', data });
         setDbStatus({ state: data.subsystems?.database ? 'connected' : 'error' });
         setDeribitStatus({ state: data.subsystems?.deribit ? 'connected' : 'connecting' });
-      })
-      .catch((err) => setApiStatus({ state: 'error', data: err.message }));
+      } catch (err) {
+        if (cancelled) return;
+
+        setApiStatus({ state: 'error', data: err.message });
+        setDbStatus({ state: 'connecting' });
+        setDeribitStatus({ state: 'connecting' });
+      } finally {
+        if (!cancelled) {
+          retryTimer = setTimeout(checkHealth, RETRY_DELAY_MS);
+        }
+      }
+    };
+
+    checkHealth();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+    };
   }, []);
 
   /* ── WebSocket connection ────────────────────────── */
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:3001/ws');
-    wsRef.current = ws;
+    let cancelled = false;
+    let retryTimer;
 
-    ws.onopen = () => {
-      setWsStatus((prev) => ({ ...prev, state: 'connected' }));
-    };
+    const connect = () => {
+      if (cancelled) return;
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+      setWsStatus((prev) => ({ ...prev, state: 'connecting' }));
 
-      switch (msg.type) {
-        case 'welcome':
-          setWsStatus({ state: 'connected', data: msg });
-          if (msg.prices) {
+      ws.onopen = () => {
+        setWsStatus((prev) => ({ ...prev, state: 'connected' }));
+      };
+
+      ws.onmessage = (event) => {
+        const msg = JSON.parse(event.data);
+
+        switch (msg.type) {
+          case 'welcome':
+            setWsStatus({ state: 'connected', data: msg });
+            if (msg.prices) {
+              setPrices((prev) => ({
+                ...prev,
+                ...Object.fromEntries(
+                  Object.entries(msg.prices).filter(([, v]) => v !== null)
+                ),
+              }));
+            }
+            setDeribitStatus({ state: msg.deribit_connected ? 'connected' : 'connecting' });
+            break;
+
+          case 'price_update':
             setPrices((prev) => ({
               ...prev,
-              ...Object.fromEntries(
-                Object.entries(msg.prices).filter(([, v]) => v !== null)
-              ),
+              [msg.index]: { price: msg.price, timestamp: msg.timestamp },
             }));
-          }
-          if (msg.deribit_connected) {
             setDeribitStatus({ state: 'connected' });
-          }
-          break;
+            break;
 
-        case 'price_update':
-          setPrices((prev) => ({
-            ...prev,
-            [msg.index]: { price: msg.price, timestamp: msg.timestamp },
-          }));
-          setDeribitStatus({ state: 'connected' });
-          break;
+          case 'deribit_status':
+            setDeribitStatus({
+              state: msg.connected ? 'connected' : 'connecting',
+            });
+            break;
+        }
+      };
 
-        case 'deribit_status':
-          setDeribitStatus({
-            state: msg.connected ? 'connected' : 'connecting',
-          });
-          break;
-      }
+      ws.onerror = () => {
+        setWsStatus({ state: 'error', data: 'Connection failed' });
+      };
+
+      ws.onclose = () => {
+        if (cancelled) return;
+
+        setWsStatus((prev) => ({
+          ...prev,
+          state: prev.state === 'connected' ? 'disconnected' : 'connecting',
+        }));
+        retryTimer = setTimeout(connect, RETRY_DELAY_MS);
+      };
     };
 
-    ws.onerror = () => {
-      setWsStatus({ state: 'error', data: 'Connection failed' });
-    };
+    connect();
 
-    ws.onclose = () => {
-      setWsStatus((prev) => {
-        if (prev.state === 'connected') return { ...prev, state: 'disconnected' };
-        return prev;
-      });
+    return () => {
+      cancelled = true;
+      clearTimeout(retryTimer);
+      wsRef.current?.close();
     };
-
-    return () => ws.close();
   }, []);
 
   // Transition from boot screen to dashboard once API and WS are connected
@@ -130,7 +174,7 @@ function App() {
               {label}
             </span>
             <span className={`value ${statusClass(status)}`}>
-              {status === 'connected' ? '● Online' : status === 'error' ? '✕ Failed' : '◌ Connecting…'}
+              {status === 'connected' ? 'Online' : status === 'error' ? 'Retrying' : 'Connecting'}
             </span>
           </div>
         ))}

@@ -536,6 +536,25 @@ button {
   font-size: 0.72rem;
 }
 
+.ath-badge {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+.ath-distance {
+  opacity: 0.75;
+  font-size: 0.7rem;
+}
+
 /* ── Crosshair HUD ── */
 .ohlcv-hud {
   display: flex;
@@ -685,6 +704,56 @@ button {
 @keyframes spinChart {
   to { transform: rotate(360deg); }
 }
+
+/* ── Option Candlestick Chart ── */
+.option-candlestick-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-glass);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.option-chart-header {
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.option-chart-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.option-instrument-name {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.option-chart-price {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.option-chart-canvas-wrapper {
+  position: relative;
+  width: 100%;
+  height: 280px;
+}
+
+.option-chart-canvas {
+  width: 100%;
+  height: 100%;
+}
+
 .option-chain-container {
   display: flex;
   flex-direction: column;

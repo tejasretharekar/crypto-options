@@ -60,6 +60,25 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_positions_status ON positions(status);
   CREATE INDEX IF NOT EXISTS idx_positions_instrument ON positions(instrument_name);
   CREATE INDEX IF NOT EXISTS idx_trades_instrument ON trades(instrument_name);
+
+  CREATE TABLE IF NOT EXISTS mark_price_ticks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    instrument_name TEXT    NOT NULL,
+    timestamp_ms    INTEGER NOT NULL,
+    mark_price      REAL    NOT NULL,
+    mark_iv         REAL,
+    UNIQUE(instrument_name, timestamp_ms)
+  );
+  CREATE INDEX IF NOT EXISTS idx_mpt_instrument_ts ON mark_price_ticks(instrument_name, timestamp_ms);
+
+  CREATE TABLE IF NOT EXISTS option_ath (
+    instrument_name TEXT PRIMARY KEY,
+    ath_mark_price  REAL    NOT NULL,
+    ath_timestamp   INTEGER NOT NULL,
+    first_tracked   INTEGER NOT NULL,
+    last_updated    INTEGER NOT NULL,
+    expiry_timestamp INTEGER
+  );
 `;
 
 /* ── Initialize ──────────────────────────────────────────── */
@@ -140,4 +159,55 @@ export function updateCash(newCash) {
 
 export function getDb() {
   return db;
+}
+
+export function isDatabaseReady() {
+  return Boolean(db);
+}
+/* -- Mark Price & ATH Helpers ------------------------------ */
+export function insertMarkPriceTick(instrumentName, timestampMs, markPrice, markIv) {
+  if (!db) return;
+  db.run(
+    "INSERT OR IGNORE INTO mark_price_ticks (instrument_name, timestamp_ms, mark_price, mark_iv) VALUES (?, ?, ?, ?)",
+    [instrumentName, timestampMs, markPrice, markIv]
+  );
+}
+
+export function getOptionAth(instrumentName) {
+  if (!db) return null;
+  const result = db.exec("SELECT * FROM option_ath WHERE instrument_name = ?", [instrumentName]);
+  if (!result.length) return null;
+  const cols = result[0].columns;
+  const vals = result[0].values[0];
+  return Object.fromEntries(cols.map((c, i) => [c, vals[i]]));
+}
+
+export function updateOptionAth(instrumentName, athMarkPrice, athTimestamp, firstTracked, expiryTimestamp) {
+  if (!db) return;
+  const now = Date.now();
+  db.run(
+    "INSERT INTO option_ath (instrument_name, ath_mark_price, ath_timestamp, first_tracked, last_updated, expiry_timestamp) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(instrument_name) DO UPDATE SET ath_mark_price = excluded.ath_mark_price, ath_timestamp = excluded.ath_timestamp, last_updated = excluded.last_updated",
+    [instrumentName, athMarkPrice, athTimestamp, firstTracked, now, expiryTimestamp]
+  );
+}
+
+export function getActiveTrackedOptions(currentMs) {
+  if (!db) return [];
+  const result = db.exec("SELECT * FROM option_ath WHERE expiry_timestamp > ?", [currentMs]);
+  if (!result.length) return [];
+  return result[0].values.map(row => 
+    Object.fromEntries(result[0].columns.map((c, i) => [c, row[i]]))
+  );
+}
+
+export function getOptionTicks(instrumentName, fromMs, toMs) {
+  if (!db) return [];
+  const result = db.exec(
+    "SELECT timestamp_ms, mark_price FROM mark_price_ticks WHERE instrument_name = ? AND timestamp_ms >= ? AND timestamp_ms <= ? ORDER BY timestamp_ms ASC",
+    [instrumentName, fromMs, toMs]
+  );
+  if (!result.length) return [];
+  return result[0].values.map(row => 
+    Object.fromEntries(result[0].columns.map((c, i) => [c, row[i]]))
+  );
 }

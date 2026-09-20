@@ -74,8 +74,7 @@ export class DeribitClient extends EventEmitter {
         this.emit('disconnected');
 
         if (this.shouldReconnect) {
-          console.log(`[Deribit] Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
-          this.reconnectTimer = setTimeout(() => this.connect(), RECONNECT_DELAY);
+          this._scheduleReconnect();
         }
       });
 
@@ -179,6 +178,11 @@ export class DeribitClient extends EventEmitter {
         data,
       });
     }
+
+    // Mark price updates for options
+    if (channel === 'markprice.options.btc_usd') {
+      this.emit('markprice_options', data);
+    }
   }
 
   /* ── Subscriptions ─────────────────────────────────────── */
@@ -189,6 +193,7 @@ export class DeribitClient extends EventEmitter {
         channels: [
           'deribit_price_index.btc_usd',
           'deribit_price_index.eth_usd',
+          'markprice.options.btc_usd',
         ],
       });
       console.log('[Deribit] Subscribed to BTC/ETH index prices');
@@ -315,6 +320,16 @@ export class DeribitClient extends EventEmitter {
 
   _stopHeartbeat() {
     clearInterval(this.heartbeatTimer);
+  }
+
+  _scheduleReconnect() {
+    clearTimeout(this.reconnectTimer);
+    console.log(`[Deribit] Reconnecting in ${RECONNECT_DELAY / 1000}s...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.connect().catch((err) => {
+        console.error('[Deribit] Reconnect failed:', err.message);
+      });
+    }, RECONNECT_DELAY);
   }
 
   /* ── Getters ───────────────────────────────────────────── */
