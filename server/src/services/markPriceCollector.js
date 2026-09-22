@@ -15,9 +15,9 @@ class MarkPriceCollector {
     this.discoveryTimer = null;
   }
 
-  initialize() {
+  async initialize() {
     const now = Date.now();
-    const active = getActiveTrackedOptions(now);
+    const active = await getActiveTrackedOptions(now);
     for (const opt of active) {
       this.trackedInstruments.add(opt.instrument_name);
       this.athCache[opt.instrument_name] = {
@@ -30,7 +30,7 @@ class MarkPriceCollector {
     console.log('[Collector] Initialized. Tracking ' + this.trackedInstruments.size + ' active instruments.');
   }
 
-  onData(data) {
+  async onData(data) {
     if (!Array.isArray(data)) return;
     // console.log('[Collector] Received batch of ' + data.length + ' instruments');
     const now = Date.now();
@@ -56,7 +56,7 @@ class MarkPriceCollector {
         cache.ath = mark_price;
         cache.timestamp = timestamp;
         
-        updateOptionAth(
+        await updateOptionAth(
           instrument_name, 
           cache.ath, 
           cache.timestamp, 
@@ -67,7 +67,7 @@ class MarkPriceCollector {
 
       const lastStored = this.lastStoredTimestamp[instrument_name] || 0;
       if (timestamp - lastStored >= 5000) {
-        insertMarkPriceTick(instrument_name, timestamp, mark_price, iv || 0);
+        await insertMarkPriceTick(instrument_name, timestamp, mark_price, iv || 0);
         this.lastStoredTimestamp[instrument_name] = timestamp;
       }
     }
@@ -150,7 +150,7 @@ class MarkPriceCollector {
     }
   }
 
-  getATH(instrumentName) {
+  async getATH(instrumentName) {
     if (this.athCache[instrumentName]) {
       return {
         instrument_name: instrumentName,
@@ -159,17 +159,17 @@ class MarkPriceCollector {
         first_tracked: this.athCache[instrumentName].firstTracked
       };
     }
-    return getOptionAth(instrumentName);
+    return await getOptionAth(instrumentName);
   }
 
-  getCandles(instrumentName, resolutionStr, startMs, endMs) {
+  async getCandles(instrumentName, resolutionStr, startMs, endMs) {
     let resolutionSec = 3600;
     if (resolutionStr === '1D') resolutionSec = 86400;
     else if (!isNaN(parseInt(resolutionStr, 10))) resolutionSec = parseInt(resolutionStr, 10);
     
     const intervalMs = resolutionSec * 1000;
     
-    const ticks = getOptionTicks(instrumentName, startMs, endMs);
+    const ticks = await getOptionTicks(instrumentName, startMs, endMs);
     if (!ticks || ticks.length === 0) return [];
 
     const candlesMap = new Map();

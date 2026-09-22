@@ -110,7 +110,7 @@ async function start() {
     process.exit(1);
   }
 
-  getMarkPriceCollector().initialize();
+  await getMarkPriceCollector().initialize();
 
   // 2. Connect to Deribit
   const deribit = getDeribitClient();
@@ -150,7 +150,7 @@ async function start() {
 ║                                                  ║
 ║   REST API  : http://localhost:${PORT}/api         ║
 ║   WebSocket : ws://localhost:${PORT}/ws            ║
-║   Database  : ✓ SQLite (sql.js)                  ║
+║   Database  : ✓ PostgreSQL (pg)                  ║
 ║   Deribit   : ${deribit.isConnected ? '✓ Connected' : '⚠ Reconnecting...'}                      ║
 ╚══════════════════════════════════════════════════╝
     `);

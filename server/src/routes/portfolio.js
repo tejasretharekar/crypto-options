@@ -11,10 +11,10 @@ import { getPortfolio, getOpenPositions, getTradeHistory } from '../db/index.js'
 const router = Router();
 
 /* ── GET /api/portfolio ──────────────────────────────────── */
-router.get('/portfolio', (_req, res) => {
+router.get('/portfolio', async (_req, res) => {
   try {
-    const portfolio = getPortfolio();
-    const positions = getOpenPositions();
+    const portfolio = await getPortfolio();
+    const positions = await getOpenPositions();
 
     const positionsValue = positions.reduce((sum, p) => {
       const multiplier = p.direction === 'buy' ? 1 : -1;
@@ -35,9 +35,9 @@ router.get('/portfolio', (_req, res) => {
 });
 
 /* ── GET /api/positions ──────────────────────────────────── */
-router.get('/positions', (_req, res) => {
+router.get('/positions', async (_req, res) => {
   try {
-    const positions = getOpenPositions();
+    const positions = await getOpenPositions();
     res.json({ positions, count: positions.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -45,10 +45,10 @@ router.get('/positions', (_req, res) => {
 });
 
 /* ── GET /api/trades ─────────────────────────────────────── */
-router.get('/trades', (req, res) => {
+router.get('/trades', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 50;
-    const trades = getTradeHistory(limit);
+    const trades = await getTradeHistory(limit);
     res.json({ trades, count: trades.length });
   } catch (err) {
     res.status(500).json({ error: err.message });

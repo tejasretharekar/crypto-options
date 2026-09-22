@@ -4,7 +4,7 @@ import { getOptionChain } from '../services/optionChain.js';
 
 const router = Router();
 
-router.get('/option-mark-price-candles', (req, res) => {
+router.get('/option-mark-price-candles', async (req, res) => {
   try {
     const { instrument, resolution = '60', start, end } = req.query;
     if (!instrument) {
@@ -15,7 +15,7 @@ router.get('/option-mark-price-candles', (req, res) => {
     const endMs = end ? parseInt(end, 10) : Date.now();
 
     const collector = getMarkPriceCollector();
-    const candles = collector.getCandles(instrument, resolution, startMs, endMs);
+    const candles = await collector.getCandles(instrument, resolution, startMs, endMs);
     
     res.json({
       instrument,
@@ -28,7 +28,7 @@ router.get('/option-mark-price-candles', (req, res) => {
   }
 });
 
-router.get('/option-ath', (req, res) => {
+router.get('/option-ath', async (req, res) => {
   try {
     const { instrument } = req.query;
     if (!instrument) {
@@ -36,7 +36,7 @@ router.get('/option-ath', (req, res) => {
     }
 
     const collector = getMarkPriceCollector();
-    const athData = collector.getATH(instrument);
+    const athData = await collector.getATH(instrument);
     
     if (!athData) {
       return res.status(404).json({ error: 'ATH data not available' });
