@@ -16,7 +16,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 /* ── Middleware ──────────────────────────────────────────── */
-app.use(cors({ origin: 'http://localhost:5173' }));
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://crypto-options-vm1q.vercel.app'
+];
+
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 /* ── Routes ──────────────────────────────────────────────── */
