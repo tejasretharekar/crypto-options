@@ -5,12 +5,14 @@ import {
   getActiveTrackedOptions,
   getOptionTicks 
 } from '../db/index.js';
+import { getOptionChain } from './optionChain.js';
 
 class MarkPriceCollector {
   constructor() {
     this.trackedInstruments = new Set();
     this.lastStoredTimestamp = {};
     this.athCache = {};
+    this.discoveryTimer = null;
   }
 
   initialize() {
@@ -37,7 +39,7 @@ class MarkPriceCollector {
       const { instrument_name, mark_price, iv, timestamp } = item;
       
       if (!this.trackedInstruments.has(instrument_name)) continue;
-      console.log('[Collector] Processing tracked instrument: ' + instrument_name);
+      // console.log('[Collector] Processing tracked instrument: ' + instrument_name); // Removed to avoid flooding logs
 
       if (!this.athCache[instrument_name]) {
         this.athCache[instrument_name] = {
@@ -112,6 +114,39 @@ class MarkPriceCollector {
     
     if (addedCount > 0) {
       console.log('[Collector] Now tracking ' + addedCount + ' new instruments for expiry ' + expiryDate);
+    }
+  }
+
+  async runDiscoveryCycle(currency = 'BTC') {
+    try {
+      console.log(`[Collector] Running autonomous discovery for ${currency}...`);
+      const chainData = await getOptionChain(currency);
+      for (const expiry of chainData.expiries) {
+        this.trackExpiry(chainData, expiry);
+      }
+      this._cleanupExpired();
+      console.log(`[Collector] Discovery complete. Tracking ${this.trackedInstruments.size} active instruments.`);
+    } catch (err) {
+      console.warn(`[Collector] Discovery failed for ${currency}:`, err.message);
+    }
+  }
+
+  startAutonomousDiscovery(currency = 'BTC') {
+    if (this.discoveryTimer) {
+      clearInterval(this.discoveryTimer);
+    }
+    // Run every 4 hours
+    this.discoveryTimer = setInterval(() => {
+      this.runDiscoveryCycle(currency);
+    }, 4 * 60 * 60 * 1000);
+    console.log(`[Collector] Autonomous discovery scheduled for ${currency} every 4 hours.`);
+  }
+
+  stopDiscovery() {
+    if (this.discoveryTimer) {
+      clearInterval(this.discoveryTimer);
+      this.discoveryTimer = null;
+      console.log('[Collector] Autonomous discovery stopped.');
     }
   }
 

@@ -129,6 +129,7 @@ async function start() {
 
   deribit.on('connected', () => {
     broadcast({ type: 'deribit_status', connected: true });
+    getMarkPriceCollector().runDiscoveryCycle();
   });
 
   deribit.on('disconnected', () => {
@@ -161,6 +162,7 @@ async function start() {
   try {
     await deribit.connect();
     console.log('[Boot] ✓ Deribit connected');
+    getMarkPriceCollector().startAutonomousDiscovery();
   } catch (err) {
     console.error('[Boot] ⚠ Deribit connection failed (will retry):', err.message);
     // Non-fatal — we retry in the background

@@ -48,6 +48,11 @@ router.get('/option-ath', (req, res) => {
   }
 });
 
+/**
+ * Manual/admin endpoint for force-tracking an expiry.
+ * In production, the autonomous discovery handles this automatically.
+ * Retained for debugging and manual override.
+ */
 router.post('/mark-price-collector/track', async (req, res) => {
   try {
     const { expiryDate, currency = 'BTC' } = req.query;
