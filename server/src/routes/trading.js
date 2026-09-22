@@ -5,7 +5,16 @@
  * POST /api/position/:id/close — Close an open position
  */
 import { Router } from 'express';
-import { getDb, getPortfolio, updateCash, saveDatabase, getOpenPositions } from '../db/index.js';
+import { 
+  getPortfolio, 
+  updateCash, 
+  insertTrade,
+  findOpenPosition,
+  findOpenPositionById,
+  updatePositionQuantity,
+  closePosition,
+  createPosition
+} from '../db/index.js';
 import { getDeribitClient } from '../services/deribit.js';
 
 const router = Router();
@@ -63,7 +72,7 @@ router.post('/trade', async (req, res) => {
     const totalCost = priceUsd * quantity;
 
     // Check portfolio balance
-    const portfolio = getPortfolio();
+    const portfolio = await getPortfolio();
 
     if (direction === 'buy' && totalCost > portfolio.cash) {
       return res.status(400).json({
@@ -73,27 +82,14 @@ router.post('/trade', async (req, res) => {
       });
     }
 
-    const db = getDb();
-
     // Record the trade
-    db.run(
-      `INSERT INTO trades (instrument_name, direction, quantity, price, total_cost, currency, kind, strike, expiry, option_type)
-       VALUES (?, ?, ?, ?, ?, ?, 'option', ?, ?, ?)`,
-      [instrument_name, direction, quantity, priceUsd, totalCost, currency, strike, expiry, option_type]
-    );
+    await insertTrade(instrument_name, direction, quantity, priceUsd, totalCost, currency, strike, expiry, option_type);
 
     // Create or update position
     // Check if there's an existing open position for this instrument
-    const existingPos = db.exec(
-      `SELECT * FROM positions WHERE instrument_name = ? AND status = 'open'`,
-      [instrument_name]
-    );
+    const pos = await findOpenPosition(instrument_name);
 
-    if (existingPos.length > 0 && existingPos[0].values.length > 0) {
-      const cols = existingPos[0].columns;
-      const vals = existingPos[0].values[0];
-      const pos = Object.fromEntries(cols.map((c, i) => [c, vals[i]]));
-
+    if (pos) {
       // Update existing position
       const currentQty = pos.quantity;
       const currentDir = pos.direction;
@@ -102,10 +98,7 @@ router.post('/trade', async (req, res) => {
         // Adding to position
         const newQty = currentQty + quantity;
         const avgPrice = (pos.entry_price * currentQty + priceUsd * quantity) / newQty;
-        db.run(
-          `UPDATE positions SET quantity = ?, entry_price = ? WHERE id = ?`,
-          [newQty, avgPrice, pos.id]
-        );
+        await updatePositionQuantity(pos.id, newQty, avgPrice);
       } else {
         // Reducing or closing position
         if (quantity >= currentQty) {
@@ -113,35 +106,24 @@ router.post('/trade', async (req, res) => {
           const pnl = currentDir === 'buy'
             ? (priceUsd - pos.entry_price) * currentQty
             : (pos.entry_price - priceUsd) * currentQty;
-          db.run(
-            `UPDATE positions SET status = 'closed', closed_at = datetime('now'), current_price = ?, pnl = ? WHERE id = ?`,
-            [priceUsd, pnl, pos.id]
-          );
+          await closePosition(pos.id, priceUsd, pnl);
         } else {
           // Partial close
           const newQty = currentQty - quantity;
-          db.run(
-            `UPDATE positions SET quantity = ? WHERE id = ?`,
-            [newQty, pos.id]
-          );
+          await updatePositionQuantity(pos.id, newQty);
         }
       }
     } else {
       // Create new position
-      db.run(
-        `INSERT INTO positions (instrument_name, direction, quantity, entry_price, current_price, currency, kind, strike, expiry, option_type)
-         VALUES (?, ?, ?, ?, ?, ?, 'option', ?, ?, ?)`,
-        [instrument_name, direction, quantity, priceUsd, priceUsd, currency, strike, expiry, option_type]
-      );
+      await createPosition(instrument_name, direction, quantity, priceUsd, priceUsd, currency, strike, expiry, option_type);
     }
 
     // Update cash
     const cashChange = direction === 'buy' ? -totalCost : totalCost;
-    updateCash(portfolio.cash + cashChange);
-    saveDatabase();
+    await updateCash(portfolio.cash + cashChange);
 
     // Return confirmation
-    const updatedPortfolio = getPortfolio();
+    const updatedPortfolio = await getPortfolio();
 
     res.json({
       success: true,
@@ -168,17 +150,12 @@ router.post('/trade', async (req, res) => {
 router.post('/position/:id/close', async (req, res) => {
   try {
     const { id } = req.params;
-    const db = getDb();
 
     // Get position
-    const result = db.exec(`SELECT * FROM positions WHERE id = ? AND status = 'open'`, [id]);
-    if (!result.length || !result[0].values.length) {
+    const position = await findOpenPositionById(id);
+    if (!position) {
       return res.status(404).json({ error: 'Position not found or already closed' });
     }
-
-    const cols = result[0].columns;
-    const vals = result[0].values[0];
-    const position = Object.fromEntries(cols.map((c, i) => [c, vals[i]]));
 
     // Get current price
     const deribit = getDeribitClient();
@@ -198,27 +175,19 @@ router.post('/position/:id/close', async (req, res) => {
       : (position.entry_price - currentPriceUsd) * position.quantity;
 
     // Close position
-    db.run(
-      `UPDATE positions SET status = 'closed', closed_at = datetime('now'), current_price = ?, pnl = ? WHERE id = ?`,
-      [currentPriceUsd, pnl, id]
-    );
+    await closePosition(id, currentPriceUsd, pnl);
 
     // Record closing trade
     const closeDirection = position.direction === 'buy' ? 'sell' : 'buy';
     const totalCost = currentPriceUsd * position.quantity;
-    db.run(
-      `INSERT INTO trades (instrument_name, direction, quantity, price, total_cost, currency, kind, strike, expiry, option_type)
-       VALUES (?, ?, ?, ?, ?, ?, 'option', ?, ?, ?)`,
-      [position.instrument_name, closeDirection, position.quantity, currentPriceUsd, totalCost, position.currency, position.strike, position.expiry, position.option_type]
-    );
+    await insertTrade(position.instrument_name, closeDirection, position.quantity, currentPriceUsd, totalCost, position.currency, position.strike, position.expiry, position.option_type);
 
     // Update cash (return value of closed position)
-    const portfolio = getPortfolio();
+    const portfolio = await getPortfolio();
     const cashBack = position.direction === 'buy' ? totalCost : -totalCost;
-    updateCash(portfolio.cash + cashBack);
-    saveDatabase();
+    await updateCash(portfolio.cash + cashBack);
 
-    const updatedPortfolio = getPortfolio();
+    const updatedPortfolio = await getPortfolio();
 
     res.json({
       success: true,

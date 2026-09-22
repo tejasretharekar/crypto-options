@@ -5,17 +5,19 @@ import {
   getActiveTrackedOptions,
   getOptionTicks 
 } from '../db/index.js';
+import { getOptionChain } from './optionChain.js';
 
 class MarkPriceCollector {
   constructor() {
     this.trackedInstruments = new Set();
     this.lastStoredTimestamp = {};
     this.athCache = {};
+    this.discoveryTimer = null;
   }
 
-  initialize() {
+  async initialize() {
     const now = Date.now();
-    const active = getActiveTrackedOptions(now);
+    const active = await getActiveTrackedOptions(now);
     for (const opt of active) {
       this.trackedInstruments.add(opt.instrument_name);
       this.athCache[opt.instrument_name] = {
@@ -28,7 +30,7 @@ class MarkPriceCollector {
     console.log('[Collector] Initialized. Tracking ' + this.trackedInstruments.size + ' active instruments.');
   }
 
-  onData(data) {
+  async onData(data) {
     if (!Array.isArray(data)) return;
     // console.log('[Collector] Received batch of ' + data.length + ' instruments');
     const now = Date.now();
@@ -37,7 +39,7 @@ class MarkPriceCollector {
       const { instrument_name, mark_price, iv, timestamp } = item;
       
       if (!this.trackedInstruments.has(instrument_name)) continue;
-      console.log('[Collector] Processing tracked instrument: ' + instrument_name);
+      // console.log('[Collector] Processing tracked instrument: ' + instrument_name); // Removed to avoid flooding logs
 
       if (!this.athCache[instrument_name]) {
         this.athCache[instrument_name] = {
@@ -54,7 +56,7 @@ class MarkPriceCollector {
         cache.ath = mark_price;
         cache.timestamp = timestamp;
         
-        updateOptionAth(
+        await updateOptionAth(
           instrument_name, 
           cache.ath, 
           cache.timestamp, 
@@ -65,7 +67,7 @@ class MarkPriceCollector {
 
       const lastStored = this.lastStoredTimestamp[instrument_name] || 0;
       if (timestamp - lastStored >= 5000) {
-        insertMarkPriceTick(instrument_name, timestamp, mark_price, iv || 0);
+        await insertMarkPriceTick(instrument_name, timestamp, mark_price, iv || 0);
         this.lastStoredTimestamp[instrument_name] = timestamp;
       }
     }
@@ -115,7 +117,40 @@ class MarkPriceCollector {
     }
   }
 
-  getATH(instrumentName) {
+  async runDiscoveryCycle(currency = 'BTC') {
+    try {
+      console.log(`[Collector] Running autonomous discovery for ${currency}...`);
+      const chainData = await getOptionChain(currency);
+      for (const expiry of chainData.expiries) {
+        this.trackExpiry(chainData, expiry);
+      }
+      this._cleanupExpired();
+      console.log(`[Collector] Discovery complete. Tracking ${this.trackedInstruments.size} active instruments.`);
+    } catch (err) {
+      console.warn(`[Collector] Discovery failed for ${currency}:`, err.message);
+    }
+  }
+
+  startAutonomousDiscovery(currency = 'BTC') {
+    if (this.discoveryTimer) {
+      clearInterval(this.discoveryTimer);
+    }
+    // Run every 4 hours
+    this.discoveryTimer = setInterval(() => {
+      this.runDiscoveryCycle(currency);
+    }, 4 * 60 * 60 * 1000);
+    console.log(`[Collector] Autonomous discovery scheduled for ${currency} every 4 hours.`);
+  }
+
+  stopDiscovery() {
+    if (this.discoveryTimer) {
+      clearInterval(this.discoveryTimer);
+      this.discoveryTimer = null;
+      console.log('[Collector] Autonomous discovery stopped.');
+    }
+  }
+
+  async getATH(instrumentName) {
     if (this.athCache[instrumentName]) {
       return {
         instrument_name: instrumentName,
@@ -124,17 +159,17 @@ class MarkPriceCollector {
         first_tracked: this.athCache[instrumentName].firstTracked
       };
     }
-    return getOptionAth(instrumentName);
+    return await getOptionAth(instrumentName);
   }
 
-  getCandles(instrumentName, resolutionStr, startMs, endMs) {
+  async getCandles(instrumentName, resolutionStr, startMs, endMs) {
     let resolutionSec = 3600;
     if (resolutionStr === '1D') resolutionSec = 86400;
     else if (!isNaN(parseInt(resolutionStr, 10))) resolutionSec = parseInt(resolutionStr, 10);
     
     const intervalMs = resolutionSec * 1000;
     
-    const ticks = getOptionTicks(instrumentName, startMs, endMs);
+    const ticks = await getOptionTicks(instrumentName, startMs, endMs);
     if (!ticks || ticks.length === 0) return [];
 
     const candlesMap = new Map();

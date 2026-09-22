@@ -16,7 +16,12 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 /* ── Middleware ──────────────────────────────────────────── */
-app.use(cors({ origin: 'http://localhost:5173' }));
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://crypto-options-vm1q.vercel.app'
+];
+
+app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
 /* ── Routes ──────────────────────────────────────────────── */
@@ -110,7 +115,7 @@ async function start() {
     process.exit(1);
   }
 
-  getMarkPriceCollector().initialize();
+  await getMarkPriceCollector().initialize();
 
   // 2. Connect to Deribit
   const deribit = getDeribitClient();
@@ -129,6 +134,7 @@ async function start() {
 
   deribit.on('connected', () => {
     broadcast({ type: 'deribit_status', connected: true });
+    getMarkPriceCollector().runDiscoveryCycle();
   });
 
   deribit.on('disconnected', () => {
@@ -149,7 +155,7 @@ async function start() {
 ║                                                  ║
 ║   REST API  : http://localhost:${PORT}/api         ║
 ║   WebSocket : ws://localhost:${PORT}/ws            ║
-║   Database  : ✓ SQLite (sql.js)                  ║
+║   Database  : ✓ PostgreSQL (pg)                  ║
 ║   Deribit   : ${deribit.isConnected ? '✓ Connected' : '⚠ Reconnecting...'}                      ║
 ╚══════════════════════════════════════════════════╝
     `);
@@ -161,6 +167,7 @@ async function start() {
   try {
     await deribit.connect();
     console.log('[Boot] ✓ Deribit connected');
+    getMarkPriceCollector().startAutonomousDiscovery();
   } catch (err) {
     console.error('[Boot] ⚠ Deribit connection failed (will retry):', err.message);
     // Non-fatal — we retry in the background
