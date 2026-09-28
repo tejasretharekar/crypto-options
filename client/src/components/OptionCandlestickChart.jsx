@@ -19,7 +19,7 @@ const RESOLUTIONS = [
   { label: '1D', value: '1D', intervalSec: 86400 },
 ];
 
-export default function OptionCandlestickChart({ instrumentName, optionType, currentPrice }) {
+export default function OptionCandlestickChart({ instrumentName, optionType, currentPrice, underlyingPrice, currency = 'BTC' }) {
   const chartContainerRef = useRef(null);
   const chartInstanceRef = useRef(null);
   const candleSeriesRef = useRef(null);
@@ -27,12 +27,15 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
   const lineSeriesRef = useRef(null);
   const rawCandlesRef = useRef([]);
 
+  const [displayUnit, setDisplayUnit] = useState('USD');
   const [resolution, setResolution] = useState('60');
   const [chartType, setChartType] = useState('candles');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hoverData, setHoverData] = useState(null);
   const [stats, setStats] = useState({ high: null, low: null, change: null, changePct: null });
+
+  const multiplier = (displayUnit === 'USD' && underlyingPrice) ? underlyingPrice : 1;
 
   /* ── 1. Initialize Chart Canvas ────────────────────────── */
   useEffect(() => {
@@ -103,6 +106,10 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
     });
     volumeSeriesRef.current = volumeSeries;
 
+    const initialPriceFormat = displayUnit === 'USD'
+      ? { type: 'price', precision: 2, minMove: 0.01 }
+      : { type: 'price', precision: 4, minMove: 0.0001 };
+
     // Candlestick Series
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: '#22c55e',
@@ -111,6 +118,7 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
       borderDownColor: '#ef4444',
       wickUpColor: '#22c55e',
       wickDownColor: '#ef4444',
+      priceFormat: initialPriceFormat,
     });
     candleSeriesRef.current = candleSeries;
 
@@ -119,6 +127,7 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
       color: '#3b82f6',
       lineWidth: 2,
       visible: false,
+      priceFormat: initialPriceFormat,
     });
     lineSeriesRef.current = lineSeries;
 
@@ -174,6 +183,37 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
     }
   }, [chartType]);
 
+  const updateDataWithMultiplier = (candles, mult, unit) => {
+    if (!candleSeriesRef.current || !lineSeriesRef.current) return;
+    const isUsd = unit === 'USD';
+    const priceFormat = isUsd
+      ? { type: 'price', precision: 2, minMove: 0.01 }
+      : { type: 'price', precision: 4, minMove: 0.0001 };
+
+    candleSeriesRef.current.applyOptions({ priceFormat });
+    lineSeriesRef.current.applyOptions({ priceFormat });
+
+    if (candles && candles.length > 0) {
+      const mapped = candles.map((c) => ({
+        time: c.time,
+        open: c.open * mult,
+        high: c.high * mult,
+        low: c.low * mult,
+        close: c.close * mult,
+      }));
+      candleSeriesRef.current.setData(mapped);
+      lineSeriesRef.current.setData(mapped.map((c) => ({ time: c.time, value: c.close })));
+      updateStats(mapped);
+    }
+  };
+
+  /* ── Refresh series when display unit or multiplier changes ─ */
+  useEffect(() => {
+    if (rawCandlesRef.current.length > 0) {
+      updateDataWithMultiplier(rawCandlesRef.current, multiplier, displayUnit);
+    }
+  }, [displayUnit, multiplier]);
+
   /* ── 3. Load Historical Data ────────────────────────────── */
   useEffect(() => {
     if (!instrumentName) return;
@@ -191,12 +231,7 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
         if (!mounted) return;
         if (res && res.candles) {
           rawCandlesRef.current = res.candles;
-          candleSeriesRef.current?.setData(res.candles);
-          lineSeriesRef.current?.setData(res.candles.map(c => ({ time: c.time, value: c.close })));
-          
-          if (res.candles.length > 0) {
-            updateStats(res.candles);
-          }
+          updateDataWithMultiplier(res.candles, multiplier, displayUnit);
           chartInstanceRef.current?.timeScale().fitContent();
         }
       })
@@ -252,20 +287,40 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
       latest.close = currentPrice;
     }
 
+    const scaledLatest = {
+      time: latest.time,
+      open: latest.open * multiplier,
+      high: latest.high * multiplier,
+      low: latest.low * multiplier,
+      close: latest.close * multiplier,
+    };
+
     try {
-      candleSeriesRef.current?.update(latest);
-      lineSeriesRef.current?.update({ time: latest.time, value: latest.close });
-      updateStats(candles);
+      candleSeriesRef.current?.update(scaledLatest);
+      lineSeriesRef.current?.update({ time: scaledLatest.time, value: scaledLatest.close });
+      updateStats(candles.map((c) => ({
+        ...c,
+        open: c.open * multiplier,
+        high: c.high * multiplier,
+        low: c.low * multiplier,
+        close: c.close * multiplier,
+      })));
     } catch (err) {
       // Ignore if timeframe changed concurrently
     }
-  }, [currentPrice, instrumentName, resolution, loading]);
+  }, [currentPrice, instrumentName, resolution, loading, multiplier]);
 
   const handleResetZoom = () => {
     chartInstanceRef.current?.timeScale().fitContent();
   };
 
-  const activeCandle = hoverData || (rawCandlesRef.current.length > 0 ? rawCandlesRef.current[rawCandlesRef.current.length - 1] : null);
+  const activeCandle = hoverData || (rawCandlesRef.current.length > 0 ? {
+    ...rawCandlesRef.current[rawCandlesRef.current.length - 1],
+    open: rawCandlesRef.current[rawCandlesRef.current.length - 1].open * multiplier,
+    high: rawCandlesRef.current[rawCandlesRef.current.length - 1].high * multiplier,
+    low: rawCandlesRef.current[rawCandlesRef.current.length - 1].low * multiplier,
+    close: rawCandlesRef.current[rawCandlesRef.current.length - 1].close * multiplier,
+  } : null);
   const isPositive = (stats.changePct || 0) >= 0;
 
   return (
@@ -276,7 +331,10 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
           <span className="option-instrument-name">{instrumentName}</span>
           {activeCandle && (
             <span className="option-chart-price">
-              {activeCandle.close?.toFixed(4)} BTC
+              {displayUnit === 'USD'
+                ? `$${activeCandle.close?.toFixed(2)}`
+                : `${activeCandle.close?.toFixed(4)} ${currency || 'BTC'}`
+              }
             </span>
           )}
           {stats.changePct !== null && (
@@ -290,24 +348,41 @@ export default function OptionCandlestickChart({ instrumentName, optionType, cur
           <div className="ohlcv-hud">
             <div className="hud-item">
               <span className="hud-label">O</span>
-              <span className="hud-val">{activeCandle.open?.toFixed(4)}</span>
+              <span className="hud-val">{displayUnit === 'USD' ? `$${activeCandle.open?.toFixed(2)}` : activeCandle.open?.toFixed(4)}</span>
             </div>
             <div className="hud-item">
               <span className="hud-label">H</span>
-              <span className="hud-val up">{activeCandle.high?.toFixed(4)}</span>
+              <span className="hud-val up">{displayUnit === 'USD' ? `$${activeCandle.high?.toFixed(2)}` : activeCandle.high?.toFixed(4)}</span>
             </div>
             <div className="hud-item">
               <span className="hud-label">L</span>
-              <span className="hud-val down">{activeCandle.low?.toFixed(4)}</span>
+              <span className="hud-val down">{displayUnit === 'USD' ? `$${activeCandle.low?.toFixed(2)}` : activeCandle.low?.toFixed(4)}</span>
             </div>
             <div className="hud-item">
               <span className="hud-label">C</span>
-              <span className="hud-val">{activeCandle.close?.toFixed(4)}</span>
+              <span className="hud-val">{displayUnit === 'USD' ? `$${activeCandle.close?.toFixed(2)}` : activeCandle.close?.toFixed(4)}</span>
             </div>
           </div>
         )}
 
         <div className="chart-controls">
+          <div className="timeframe-group">
+            <button
+              className={`tf-btn ${displayUnit === 'USD' ? 'active' : ''}`}
+              onClick={() => setDisplayUnit('USD')}
+              title="Display price in USD ($)"
+            >
+              USD ($)
+            </button>
+            <button
+              className={`tf-btn ${displayUnit === 'BTC' ? 'active' : ''}`}
+              onClick={() => setDisplayUnit('BTC')}
+              title={`Display price in ${currency || 'BTC'}`}
+            >
+              {currency || 'BTC'}
+            </button>
+          </div>
+
           <div className="timeframe-group">
             {RESOLUTIONS.map((res) => (
               <button

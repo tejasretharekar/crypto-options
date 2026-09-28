@@ -150,6 +150,8 @@ export default function OptionChain({ currency, underlyingPrice, selectedOption,
               instrumentName={selectedOption.instrument_name}
               optionType={selectedOption.option_type}
               currentPrice={currentPrice}
+              underlyingPrice={underlyingPrice}
+              currency={currency}
             />
           </div>
         </div>

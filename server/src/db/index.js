@@ -96,17 +96,35 @@ export async function initDatabase() {
   // Connection pool settings
   config.max = 10;                // max connections in pool
   config.idleTimeoutMillis = 30000;
-  config.connectionTimeoutMillis = 5000;
+  config.connectionTimeoutMillis = 15000; // Increased for SSH tunnel latency
 
   pool = new Pool(config);
 
-  // Verify connection
-  const client = await pool.connect();
-  try {
-    await client.query('SELECT 1');
-    console.log('[DB] PostgreSQL connection verified');
-  } finally {
-    client.release();
+  // Catch unexpected errors on idle clients so they do not crash the Node process
+  pool.on('error', (err) => {
+    console.error('[DB] Unexpected error on idle PostgreSQL client (non-fatal):', err.message);
+  });
+
+  // Verify connection with retry (handles tunnel latency on boot)
+  let client = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      client = await pool.connect();
+      await client.query('SELECT 1');
+      console.log('[DB] PostgreSQL connection verified');
+      break;
+    } catch (err) {
+      if (client) {
+        try { client.release(); } catch (_) {}
+        client = null;
+      }
+      if (attempt === 3) throw err;
+      console.warn(`[DB] Connection attempt ${attempt} failed (${err.message}), retrying in 2s...`);
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  if (client) {
+    try { client.release(); } catch (_) {}
   }
 
   // Run schema (IF NOT EXISTS makes this idempotent)

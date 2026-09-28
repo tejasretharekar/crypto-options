@@ -52,23 +52,28 @@ class MarkPriceCollector {
 
       const cache = this.athCache[instrument_name];
 
-      if (mark_price > cache.ath) {
-        cache.ath = mark_price;
-        cache.timestamp = timestamp;
-        
-        await updateOptionAth(
-          instrument_name, 
-          cache.ath, 
-          cache.timestamp, 
-          cache.firstTracked, 
-          cache.expiryTimestamp
-        );
-      }
+      try {
+        if (mark_price > cache.ath) {
+          cache.ath = mark_price;
+          cache.timestamp = timestamp;
+          
+          await updateOptionAth(
+            instrument_name, 
+            cache.ath, 
+            cache.timestamp, 
+            cache.firstTracked, 
+            cache.expiryTimestamp
+          );
+        }
 
-      const lastStored = this.lastStoredTimestamp[instrument_name] || 0;
-      if (timestamp - lastStored >= 5000) {
-        await insertMarkPriceTick(instrument_name, timestamp, mark_price, iv || 0);
-        this.lastStoredTimestamp[instrument_name] = timestamp;
+        const lastStored = this.lastStoredTimestamp[instrument_name] || 0;
+        if (timestamp - lastStored >= 5000) {
+          await insertMarkPriceTick(instrument_name, timestamp, mark_price, iv || 0);
+          this.lastStoredTimestamp[instrument_name] = timestamp;
+        }
+      } catch (dbErr) {
+        // Non-fatal: log warning and continue streaming
+        console.warn(`[Collector] DB write warning for ${instrument_name}:`, dbErr.message);
       }
     }
     

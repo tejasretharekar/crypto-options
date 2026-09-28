@@ -15,6 +15,10 @@ import { getMarkPriceCollector } from './services/markPriceCollector.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+process.on('unhandledRejection', (reason) => {
+  console.warn('[Server] Unhandled rejection (non-fatal):', reason?.message || reason);
+});
+
 /* ── Middleware ──────────────────────────────────────────── */
 const allowedOrigins = [
   'http://localhost:5173',

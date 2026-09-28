@@ -4,6 +4,7 @@
   "private": true,
   "description": "Crypto options paper-trading platform",
   "scripts": {
+    "tunnel": "ssh -i \"D:\\Downloads\\crypto-options-key.pem\" -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -N -L 5433:127.0.0.1:5432 azureuser@104.211.102.14",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "cd client && npm run dev",
     "dev:server": "cd server && npm run dev",
