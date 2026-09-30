@@ -8,7 +8,7 @@ import {
   CrosshairMode,
   LineStyle,
 } from 'lightweight-charts';
-import { getChartData, getATH, getOptionMarkPriceCandles } from '../services/api';
+import { getChartData, getATH, getOptionMarkPriceCandles, getOptionATH } from '../services/api';
 import DrawingToolbar from './drawing/DrawingToolbar';
 import DrawingOverlay from './drawing/DrawingOverlay';
 
@@ -336,32 +336,43 @@ export default function UnifiedChart({
 
   /* ── 5. ATH & Strike Line Overlays for Underlying ─────────── */
   useEffect(() => {
-    if (isOption) {
-      if (athLineRef.current) {
-        candleSeriesRef.current?.removePriceLine(athLineRef.current);
-        athLineRef.current = null;
-      }
-      return;
-    }
-
     let active = true;
-    const cur = instrument?.currency || currency;
-    if (cur === 'BTC') {
-      getATH('BTC')
-        .then((data) => {
-          if (active && data?.ath) {
-            setAthValue(data.ath);
-          }
-        })
-        .catch(() => {});
+
+    if (isOption) {
+      if (instrumentName) {
+        getOptionATH(instrumentName)
+          .then((data) => {
+            if (active && data && data.ath_mark_price) {
+              setAthValue(data.ath_mark_price);
+            } else if (active) {
+              setAthValue(null);
+            }
+          })
+          .catch(() => {
+            if (active) setAthValue(null);
+          });
+      } else {
+        setAthValue(null);
+      }
     } else {
-      setAthValue(null);
+      const cur = instrument?.currency || currency;
+      if (cur === 'BTC') {
+        getATH('BTC')
+          .then((data) => {
+            if (active && data?.ath) {
+              setAthValue(data.ath);
+            }
+          })
+          .catch(() => {});
+      } else {
+        setAthValue(null);
+      }
     }
 
     return () => {
       active = false;
     };
-  }, [isOption, instrument, currency]);
+  }, [isOption, instrument, currency, instrumentName]);
 
   useEffect(() => {
     if (!candleSeriesRef.current) return;
@@ -369,22 +380,47 @@ export default function UnifiedChart({
       candleSeriesRef.current.removePriceLine(athLineRef.current);
       athLineRef.current = null;
     }
-    if (athValue !== null && !isOption) {
+    if (athValue !== null) {
+      const displayAthValue = isOption ? athValue * multiplier : athValue;
+
+      let athLabel = '';
+      if (isOption) {
+        if (displayUnit === 'USD') {
+          athLabel = `ATH: $${displayAthValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        } else {
+          athLabel = `ATH: ${displayAthValue.toFixed(4)} ${currency}`;
+        }
+      } else {
+        athLabel = `ATH: $${displayAthValue.toLocaleString()}`;
+      }
+
       athLineRef.current = candleSeriesRef.current.createPriceLine({
-        price: athValue,
+        price: displayAthValue,
         color: '#fbbf24',
         lineWidth: 1,
         lineStyle: LineStyle.Dashed,
         axisLabelVisible: true,
-        title: `ATH: $${athValue.toLocaleString()}`,
+        title: athLabel,
       });
     }
-  }, [athValue, isOption]);
+  }, [athValue, isOption, multiplier, displayUnit, currency]);
 
   /* ── 6. Live Tick Updates ────────────────────────────────── */
   const livePrice = isOption
     ? instrument.currentPrice || instrument.markUsd
     : underlyingPrice;
+
+  const priceToMerge = isOption
+    ? (instrument.currentPrice || (instrument.markUsd && underlyingPrice ? instrument.markUsd / underlyingPrice : livePrice))
+    : livePrice;
+
+  useEffect(() => {
+    if (isOption && athValue !== null && priceToMerge && priceToMerge > athValue) {
+      setAthValue(priceToMerge);
+    } else if (!isOption && athValue !== null && underlyingPrice && underlyingPrice > athValue) {
+      setAthValue(underlyingPrice);
+    }
+  }, [isOption, athValue, priceToMerge, underlyingPrice]);
 
   useEffect(() => {
     if (!livePrice || rawCandlesRef.current.length === 0 || loading) return;
@@ -396,8 +432,6 @@ export default function UnifiedChart({
     const currentRes = RESOLUTIONS.find((r) => r.value === resolution);
     const intervalSec = currentRes ? currentRes.intervalSec : 3600;
     const nowSec = Math.floor(Date.now() / 1000);
-
-    const priceToMerge = isOption ? (instrument.currentPrice || (instrument.markUsd && underlyingPrice ? instrument.markUsd / underlyingPrice : livePrice)) : livePrice;
 
     if (nowSec < lastCandle.time + intervalSec) {
       lastCandle.high = Math.max(lastCandle.high, priceToMerge);
@@ -542,9 +576,13 @@ export default function UnifiedChart({
             </div>
           )}
 
-          {athValue !== null && !isOption && currency === 'BTC' && (
+          {athValue !== null && (
             <span className="ath-badge" title="All-Time High Reference">
-              ATH: ${athValue.toLocaleString()}
+              {isOption
+                ? (displayUnit === 'USD'
+                    ? `ATH: $${(athValue * multiplier).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : `ATH: ${(athValue * multiplier).toFixed(4)} ${currency}`)
+                : (currency === 'BTC' ? `ATH: $${athValue.toLocaleString()}` : null)}
             </span>
           )}
         </div>
