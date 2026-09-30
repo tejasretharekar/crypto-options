@@ -179,6 +179,14 @@ function App() {
           </div>
         ))}
       </div>
+      <button 
+        type="button"
+        className="bypass-boot-btn"
+        onClick={() => setBootComplete(true)}
+        style={{ marginTop: '16px', background: 'rgba(56, 189, 248, 0.1)', border: '1px solid rgba(56, 189, 248, 0.25)', color: '#38bdf8', padding: '7px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: '500', transition: 'all 0.2s' }}
+      >
+        Enter Dashboard &rarr;
+      </button>
     </div>
   );
 }
