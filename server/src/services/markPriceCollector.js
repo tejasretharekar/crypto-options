@@ -86,7 +86,7 @@ class MarkPriceCollector {
 
         const lastStored = this.lastStoredTimestamp[instrument_name] || 0;
         if (timestamp - lastStored >= 5000) {
-          await insertMarkPriceTick(instrument_name, timestamp, mark_price, iv || 0);
+          await insertMarkPriceTick(instrument_name, timestamp, mark_price, underlyingPrice, iv || 0);
           this.lastStoredTimestamp[instrument_name] = timestamp;
         }
       } catch (dbErr) {
@@ -206,19 +206,42 @@ class MarkPriceCollector {
     const candlesMap = new Map();
     for (const tick of ticks) {
       const bucket = tick.timestamp_ms - (tick.timestamp_ms % intervalMs);
+
+      const hasUsd = tick.underlying_price !== null && tick.underlying_price !== undefined;
+      const tickUsd = hasUsd ? tick.mark_price * tick.underlying_price : null;
+
       if (!candlesMap.has(bucket)) {
         candlesMap.set(bucket, {
           time: Math.floor(bucket / 1000),
           open: tick.mark_price,
           high: tick.mark_price,
           low: tick.mark_price,
-          close: tick.mark_price
+          close: tick.mark_price,
+          usd_open: tickUsd,
+          usd_high: tickUsd,
+          usd_low: tickUsd,
+          usd_close: tickUsd,
+          has_usd: hasUsd
         });
       } else {
         const c = candlesMap.get(bucket);
         c.high = Math.max(c.high, tick.mark_price);
         c.low = Math.min(c.low, tick.mark_price);
         c.close = tick.mark_price;
+
+        if (hasUsd) {
+          if (!c.has_usd) {
+            c.usd_open = tickUsd;
+            c.usd_high = tickUsd;
+            c.usd_low = tickUsd;
+            c.usd_close = tickUsd;
+            c.has_usd = true;
+          } else {
+            c.usd_high = Math.max(c.usd_high, tickUsd);
+            c.usd_low = Math.min(c.usd_low, tickUsd);
+            c.usd_close = tickUsd;
+          }
+        }
       }
     }
 

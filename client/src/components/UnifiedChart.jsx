@@ -264,13 +264,38 @@ export default function UnifiedChart({
     lineSeriesRef.current.applyOptions({ priceFormat });
 
     if (candles && candles.length > 0) {
-      const mapped = candles.map((c) => ({
-        time: c.time,
-        open: c.open * mult,
-        high: c.high * mult,
-        low: c.low * mult,
-        close: c.close * mult,
-      }));
+      const mapped = [];
+      for (const c of candles) {
+        let open, high, low, close;
+
+        if (isOption && isUsd) {
+          if (c.has_usd) {
+            open = c.usd_open;
+            high = c.usd_high;
+            low = c.usd_low;
+            close = c.usd_close;
+          } else {
+            // Omit this candle since USD data is unavailable
+            continue;
+          }
+        } else {
+          // Perpetual or base unit
+          open = c.open;
+          high = c.high;
+          low = c.low;
+          close = c.close;
+        }
+
+        mapped.push({
+          time: c.time,
+          open,
+          high,
+          low,
+          close,
+          volume: c.volume
+        });
+      }
+
       candleSeriesRef.current.setData(mapped);
       lineSeriesRef.current.setData(mapped.map((c) => ({ time: c.time, value: c.close })));
 
@@ -461,10 +486,24 @@ export default function UnifiedChart({
     const intervalSec = currentRes ? currentRes.intervalSec : 3600;
     const nowSec = Math.floor(Date.now() / 1000);
 
+    const currentUsd = priceToMerge * underlyingPrice;
+
     if (nowSec < lastCandle.time + intervalSec) {
       lastCandle.high = Math.max(lastCandle.high, priceToMerge);
       lastCandle.low = Math.min(lastCandle.low, priceToMerge);
       lastCandle.close = priceToMerge;
+
+      if (lastCandle.has_usd) {
+        lastCandle.usd_high = Math.max(lastCandle.usd_high, currentUsd);
+        lastCandle.usd_low = Math.min(lastCandle.usd_low, currentUsd);
+        lastCandle.usd_close = currentUsd;
+      } else {
+        lastCandle.usd_open = currentUsd;
+        lastCandle.usd_high = currentUsd;
+        lastCandle.usd_low = currentUsd;
+        lastCandle.usd_close = currentUsd;
+        lastCandle.has_usd = true;
+      }
     } else {
       const newCandle = {
         time: lastCandle.time + intervalSec,
@@ -472,31 +511,69 @@ export default function UnifiedChart({
         high: Math.max(lastCandle.close, priceToMerge),
         low: Math.min(lastCandle.close, priceToMerge),
         close: priceToMerge,
+        usd_open: currentUsd,
+        usd_high: currentUsd,
+        usd_low: currentUsd,
+        usd_close: currentUsd,
+        has_usd: true,
         volume: 0,
       };
       candles.push(newCandle);
     }
 
     const latest = candles[candles.length - 1];
+
+    let l_open, l_high, l_low, l_close;
+    if (isOption && displayUnit === 'USD' && latest.has_usd) {
+      l_open = latest.usd_open;
+      l_high = latest.usd_high;
+      l_low = latest.usd_low;
+      l_close = latest.usd_close;
+    } else {
+      l_open = latest.open;
+      l_high = latest.high;
+      l_low = latest.low;
+      l_close = latest.close;
+    }
+
     const scaled = {
       time: latest.time,
-      open: latest.open * multiplier,
-      high: latest.high * multiplier,
-      low: latest.low * multiplier,
-      close: latest.close * multiplier,
+      open: l_open,
+      high: l_high,
+      low: l_low,
+      close: l_close,
     };
 
     try {
       candleSeriesRef.current?.update(scaled);
       lineSeriesRef.current?.update({ time: scaled.time, value: scaled.close });
       updateStats(
-        candles.map((c) => ({
-          ...c,
-          open: c.open * multiplier,
-          high: c.high * multiplier,
-          low: c.low * multiplier,
-          close: c.close * multiplier,
-        }))
+        candles.reduce((acc, c) => {
+          let c_open, c_high, c_low, c_close;
+          if (isOption && displayUnit === 'USD') {
+            if (c.has_usd) {
+              c_open = c.usd_open;
+              c_high = c.usd_high;
+              c_low = c.usd_low;
+              c_close = c.usd_close;
+            } else {
+              return acc; // Omit
+            }
+          } else {
+            c_open = c.open;
+            c_high = c.high;
+            c_low = c.low;
+            c_close = c.close;
+          }
+          acc.push({
+            ...c,
+            open: c_open,
+            high: c_high,
+            low: c_low,
+            close: c_close,
+          });
+          return acc;
+        }, [])
       );
     } catch {
       // Ignored during timeframe switch
@@ -550,17 +627,37 @@ export default function UnifiedChart({
     chartInstanceRef.current?.timeScale().fitContent();
   };
 
-  const activeCandle =
-    hoverData ||
-    (rawCandlesRef.current.length > 0
-      ? {
-          ...rawCandlesRef.current[rawCandlesRef.current.length - 1],
-          open: rawCandlesRef.current[rawCandlesRef.current.length - 1].open * multiplier,
-          high: rawCandlesRef.current[rawCandlesRef.current.length - 1].high * multiplier,
-          low: rawCandlesRef.current[rawCandlesRef.current.length - 1].low * multiplier,
-          close: rawCandlesRef.current[rawCandlesRef.current.length - 1].close * multiplier,
-        }
-      : null);
+  const activeCandle = (() => {
+    if (hoverData) return hoverData;
+    if (rawCandlesRef.current.length === 0) return null;
+
+    const last = rawCandlesRef.current[rawCandlesRef.current.length - 1];
+    let open, high, low, close;
+
+    if (isOption && displayUnit === 'USD') {
+      if (last.has_usd) {
+        open = last.usd_open;
+        high = last.usd_high;
+        low = last.usd_low;
+        close = last.usd_close;
+      } else {
+        return null;
+      }
+    } else {
+      open = last.open;
+      high = last.high;
+      low = last.low;
+      close = last.close;
+    }
+
+    return {
+      ...last,
+      open,
+      high,
+      low,
+      close,
+    };
+  })();
 
   const isPositive = (stats.changePct || 0) >= 0;
 
