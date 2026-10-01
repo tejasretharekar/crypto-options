@@ -57,6 +57,7 @@ export default function UnifiedChart({
   const [hoverData, setHoverData] = useState(null);
   const [stats, setStats] = useState({ high: null, low: null, change: null, changePct: null });
   const [athValue, setAthValue] = useState(null);
+  const [athUsdValue, setAthUsdValue] = useState(null);
 
   // Drawing state
   const [activeTool, setActiveTool] = useState('cursor');
@@ -342,17 +343,23 @@ export default function UnifiedChart({
       if (instrumentName) {
         getOptionATH(instrumentName)
           .then((data) => {
-            if (active && data && data.ath_mark_price) {
-              setAthValue(data.ath_mark_price);
+            if (active && data) {
+              if (data.ath_mark_price !== undefined) setAthValue(data.ath_mark_price);
+              if (data.ath_usd_price !== undefined) setAthUsdValue(data.ath_usd_price);
             } else if (active) {
               setAthValue(null);
+              setAthUsdValue(null);
             }
           })
           .catch(() => {
-            if (active) setAthValue(null);
+            if (active) {
+              setAthValue(null);
+              setAthUsdValue(null);
+            }
           });
       } else {
         setAthValue(null);
+        setAthUsdValue(null);
       }
     } else {
       const cur = instrument?.currency || currency;
@@ -380,8 +387,12 @@ export default function UnifiedChart({
       candleSeriesRef.current.removePriceLine(athLineRef.current);
       athLineRef.current = null;
     }
-    if (athValue !== null) {
-      const displayAthValue = isOption ? athValue * multiplier : athValue;
+    const showAth = isOption ? (displayUnit === 'USD' ? athUsdValue !== null : athValue !== null) : athValue !== null;
+
+    if (showAth) {
+      const displayAthValue = isOption
+        ? (displayUnit === 'USD' ? athUsdValue : athValue)
+        : athValue;
 
       let athLabel = '';
       if (isOption) {
@@ -403,7 +414,7 @@ export default function UnifiedChart({
         title: athLabel,
       });
     }
-  }, [athValue, isOption, multiplier, displayUnit, currency]);
+  }, [athValue, athUsdValue, isOption, multiplier, displayUnit, currency]);
 
   /* ── 6. Live Tick Updates ────────────────────────────────── */
   const livePrice = isOption
@@ -415,12 +426,29 @@ export default function UnifiedChart({
     : livePrice;
 
   useEffect(() => {
-    if (isOption && athValue !== null && priceToMerge && priceToMerge > athValue) {
-      setAthValue(priceToMerge);
+    if (isOption) {
+      let newAth = athValue;
+      let newAthUsd = athUsdValue;
+
+      if (athValue !== null && priceToMerge && priceToMerge > athValue) {
+        newAth = priceToMerge;
+      }
+
+      if (priceToMerge && underlyingPrice) {
+        const currentUsd = priceToMerge * underlyingPrice;
+        if (athUsdValue !== null && currentUsd > athUsdValue) {
+          newAthUsd = currentUsd;
+        } else if (athUsdValue === null) {
+          newAthUsd = currentUsd;
+        }
+      }
+
+      if (newAth !== athValue) setAthValue(newAth);
+      if (newAthUsd !== athUsdValue) setAthUsdValue(newAthUsd);
     } else if (!isOption && athValue !== null && underlyingPrice && underlyingPrice > athValue) {
       setAthValue(underlyingPrice);
     }
-  }, [isOption, athValue, priceToMerge, underlyingPrice]);
+  }, [isOption, athValue, athUsdValue, priceToMerge, underlyingPrice]);
 
   useEffect(() => {
     if (!livePrice || rawCandlesRef.current.length === 0 || loading) return;
@@ -576,12 +604,12 @@ export default function UnifiedChart({
             </div>
           )}
 
-          {athValue !== null && (
+          {(isOption ? (displayUnit === 'USD' ? athUsdValue !== null : athValue !== null) : athValue !== null) && (
             <span className="ath-badge" title="All-Time High Reference">
               {isOption
                 ? (displayUnit === 'USD'
-                    ? `ATH: $${(athValue * multiplier).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : `ATH: ${(athValue * multiplier).toFixed(4)} ${currency}`)
+                    ? `ATH: $${athUsdValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : `ATH: ${athValue.toFixed(4)} ${currency}`)
                 : (currency === 'BTC' ? `ATH: $${athValue.toLocaleString()}` : null)}
             </span>
           )}

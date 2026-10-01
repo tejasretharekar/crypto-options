@@ -1,6 +1,6 @@
 /**
  * Database layer using PostgreSQL via pg (node-postgres).
- * 
+ *
  * - Connection pooling via pg.Pool
  * - Auto-creates schema on first run
  * - Seeds portfolio with $100,000 paper money
@@ -71,6 +71,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS option_ath (
     instrument_name  TEXT             PRIMARY KEY,
     ath_mark_price   DOUBLE PRECISION NOT NULL,
+    ath_usd_price    DOUBLE PRECISION,
     ath_timestamp    BIGINT           NOT NULL,
     first_tracked    BIGINT           NOT NULL,
     last_updated     BIGINT           NOT NULL,
@@ -129,6 +130,7 @@ export async function initDatabase() {
 
   // Run schema (IF NOT EXISTS makes this idempotent)
   await pool.query(SCHEMA);
+  await pool.query('ALTER TABLE option_ath ADD COLUMN IF NOT EXISTS ath_usd_price DOUBLE PRECISION');
 
   // Seed portfolio if empty
   const result = await pool.query('SELECT COUNT(*) as count FROM portfolio');
@@ -193,12 +195,18 @@ export async function getOptionAth(instrumentName) {
   return result.rows[0];
 }
 
-export async function updateOptionAth(instrumentName, athMarkPrice, athTimestamp, firstTracked, expiryTimestamp) {
+export async function updateOptionAth(instrumentName, athMarkPrice, athUsdPrice, athTimestamp, firstTracked, expiryTimestamp) {
   if (!pool) return;
   const now = Date.now();
   await pool.query(
-    "INSERT INTO option_ath (instrument_name, ath_mark_price, ath_timestamp, first_tracked, last_updated, expiry_timestamp) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT(instrument_name) DO UPDATE SET ath_mark_price = EXCLUDED.ath_mark_price, ath_timestamp = EXCLUDED.ath_timestamp, last_updated = EXCLUDED.last_updated",
-    [instrumentName, athMarkPrice, athTimestamp, firstTracked, now, expiryTimestamp]
+    `INSERT INTO option_ath (instrument_name, ath_mark_price, ath_usd_price, ath_timestamp, first_tracked, last_updated, expiry_timestamp)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT(instrument_name) DO UPDATE SET
+       ath_timestamp = CASE WHEN EXCLUDED.ath_mark_price > option_ath.ath_mark_price THEN EXCLUDED.ath_timestamp ELSE option_ath.ath_timestamp END,
+       last_updated = CASE WHEN EXCLUDED.ath_mark_price > option_ath.ath_mark_price OR EXCLUDED.ath_usd_price > COALESCE(option_ath.ath_usd_price, 0) THEN EXCLUDED.last_updated ELSE option_ath.last_updated END,
+       ath_mark_price = GREATEST(option_ath.ath_mark_price, EXCLUDED.ath_mark_price),
+       ath_usd_price = GREATEST(COALESCE(option_ath.ath_usd_price, 0), EXCLUDED.ath_usd_price)`,
+    [instrumentName, athMarkPrice, athUsdPrice, athTimestamp, firstTracked, now, expiryTimestamp]
   );
 }
 

@@ -1,11 +1,12 @@
-import { 
-  insertMarkPriceTick, 
-  getOptionAth, 
-  updateOptionAth, 
+import {
+  insertMarkPriceTick,
+  getOptionAth,
+  updateOptionAth,
   getActiveTrackedOptions,
-  getOptionTicks 
+  getOptionTicks
 } from '../db/index.js';
 import { getOptionChain } from './optionChain.js';
+import { getDeribitClient } from './deribit.js';
 
 class MarkPriceCollector {
   constructor() {
@@ -22,6 +23,7 @@ class MarkPriceCollector {
       this.trackedInstruments.add(opt.instrument_name);
       this.athCache[opt.instrument_name] = {
         ath: opt.ath_mark_price,
+        ath_usd: opt.ath_usd_price || 0,
         timestamp: opt.ath_timestamp,
         firstTracked: opt.first_tracked,
         expiryTimestamp: opt.expiry_timestamp
@@ -34,16 +36,21 @@ class MarkPriceCollector {
     if (!Array.isArray(data)) return;
     // console.log('[Collector] Received batch of ' + data.length + ' instruments');
     const now = Date.now();
+    const prices = getDeribitClient().getPrices();
 
     for (const item of data) {
       const { instrument_name, mark_price, iv, timestamp } = item;
-      
+
       if (!this.trackedInstruments.has(instrument_name)) continue;
-      // console.log('[Collector] Processing tracked instrument: ' + instrument_name); // Removed to avoid flooding logs
+
+      const underlyingKey = instrument_name.startsWith('ETH') ? 'eth_usd' : 'btc_usd';
+      const underlyingPrice = prices[underlyingKey]?.price || 0;
+      const currentUsdPrice = mark_price * underlyingPrice;
 
       if (!this.athCache[instrument_name]) {
         this.athCache[instrument_name] = {
           ath: mark_price,
+          ath_usd: currentUsdPrice,
           timestamp,
           firstTracked: timestamp,
           expiryTimestamp: this._guessExpiry(instrument_name)
@@ -53,15 +60,26 @@ class MarkPriceCollector {
       const cache = this.athCache[instrument_name];
 
       try {
+        let updated = false;
+
         if (mark_price > cache.ath) {
           cache.ath = mark_price;
           cache.timestamp = timestamp;
-          
+          updated = true;
+        }
+
+        if (currentUsdPrice > (cache.ath_usd || 0)) {
+          cache.ath_usd = currentUsdPrice;
+          updated = true;
+        }
+
+        if (updated) {
           await updateOptionAth(
-            instrument_name, 
-            cache.ath, 
-            cache.timestamp, 
-            cache.firstTracked, 
+            instrument_name,
+            cache.ath,
+            cache.ath_usd,
+            cache.timestamp,
+            cache.firstTracked,
             cache.expiryTimestamp
           );
         }
@@ -76,13 +94,13 @@ class MarkPriceCollector {
         console.warn(`[Collector] DB write warning for ${instrument_name}:`, dbErr.message);
       }
     }
-    
+
     if (Math.random() < 0.01) {
       this._cleanupExpired();
     }
   }
 
-  trackExpiry(chainData, expiryDate) {
+  async trackExpiry(chainData, expiryDate) {
     const expiryGroup = chainData.chain[expiryDate];
     if (!expiryGroup) return;
 
@@ -90,33 +108,40 @@ class MarkPriceCollector {
     let addedCount = 0;
     const now = Date.now();
 
+    const instrumentsToCheck = [];
     for (const strike of expiryGroup.allStrikes) {
-      const call = expiryGroup.calls[strike];
-      const put = expiryGroup.puts[strike];
-
-      if (call && !this.trackedInstruments.has(call.instrument_name)) {
-        this.trackedInstruments.add(call.instrument_name);
-        this.athCache[call.instrument_name] = {
-          ath: 0,
-          timestamp: now,
-          firstTracked: now,
-          expiryTimestamp
-        };
-        addedCount++;
+      if (expiryGroup.calls[strike] && !this.trackedInstruments.has(expiryGroup.calls[strike].instrument_name)) {
+        instrumentsToCheck.push(expiryGroup.calls[strike].instrument_name);
       }
-      
-      if (put && !this.trackedInstruments.has(put.instrument_name)) {
-        this.trackedInstruments.add(put.instrument_name);
-        this.athCache[put.instrument_name] = {
-          ath: 0,
-          timestamp: now,
-          firstTracked: now,
-          expiryTimestamp
-        };
-        addedCount++;
+      if (expiryGroup.puts[strike] && !this.trackedInstruments.has(expiryGroup.puts[strike].instrument_name)) {
+        instrumentsToCheck.push(expiryGroup.puts[strike].instrument_name);
       }
     }
-    
+
+    for (const instrument_name of instrumentsToCheck) {
+      this.trackedInstruments.add(instrument_name);
+
+      const dbAth = await getOptionAth(instrument_name);
+      if (dbAth) {
+        this.athCache[instrument_name] = {
+          ath: dbAth.ath_mark_price,
+          ath_usd: dbAth.ath_usd_price || 0,
+          timestamp: dbAth.ath_timestamp,
+          firstTracked: dbAth.first_tracked,
+          expiryTimestamp: dbAth.expiry_timestamp
+        };
+      } else {
+        this.athCache[instrument_name] = {
+          ath: 0,
+          ath_usd: 0,
+          timestamp: now,
+          firstTracked: now,
+          expiryTimestamp
+        };
+      }
+      addedCount++;
+    }
+
     if (addedCount > 0) {
       console.log('[Collector] Now tracking ' + addedCount + ' new instruments for expiry ' + expiryDate);
     }
@@ -127,7 +152,7 @@ class MarkPriceCollector {
       console.log(`[Collector] Running autonomous discovery for ${currency}...`);
       const chainData = await getOptionChain(currency);
       for (const expiry of chainData.expiries) {
-        this.trackExpiry(chainData, expiry);
+        await this.trackExpiry(chainData, expiry);
       }
       this._cleanupExpired();
       console.log(`[Collector] Discovery complete. Tracking ${this.trackedInstruments.size} active instruments.`);
@@ -160,6 +185,7 @@ class MarkPriceCollector {
       return {
         instrument_name: instrumentName,
         ath_mark_price: this.athCache[instrumentName].ath,
+        ath_usd_price: this.athCache[instrumentName].ath_usd,
         ath_timestamp: this.athCache[instrumentName].timestamp,
         first_tracked: this.athCache[instrumentName].firstTracked
       };
@@ -171,9 +197,9 @@ class MarkPriceCollector {
     let resolutionSec = 3600;
     if (resolutionStr === '1D') resolutionSec = 86400;
     else if (!isNaN(parseInt(resolutionStr, 10))) resolutionSec = parseInt(resolutionStr, 10);
-    
+
     const intervalMs = resolutionSec * 1000;
-    
+
     const ticks = await getOptionTicks(instrumentName, startMs, endMs);
     if (!ticks || ticks.length === 0) return [];
 
