@@ -60,11 +60,12 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_trades_instrument ON trades(instrument_name);
 
   CREATE TABLE IF NOT EXISTS mark_price_ticks (
-    id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    instrument_name TEXT             NOT NULL,
-    timestamp_ms    BIGINT           NOT NULL,
-    mark_price      DOUBLE PRECISION NOT NULL,
-    mark_iv         DOUBLE PRECISION,
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    instrument_name  TEXT             NOT NULL,
+    timestamp_ms     BIGINT           NOT NULL,
+    mark_price       DOUBLE PRECISION NOT NULL,
+    underlying_price DOUBLE PRECISION,
+    mark_iv          DOUBLE PRECISION,
     UNIQUE(instrument_name, timestamp_ms)
   );
 
@@ -131,6 +132,7 @@ export async function initDatabase() {
   // Run schema (IF NOT EXISTS makes this idempotent)
   await pool.query(SCHEMA);
   await pool.query('ALTER TABLE option_ath ADD COLUMN IF NOT EXISTS ath_usd_price DOUBLE PRECISION');
+  await pool.query('ALTER TABLE mark_price_ticks ADD COLUMN IF NOT EXISTS underlying_price DOUBLE PRECISION');
 
   // Seed portfolio if empty
   const result = await pool.query('SELECT COUNT(*) as count FROM portfolio');
@@ -177,11 +179,11 @@ export function isDatabaseReady() {
 }
 
 /* ── Mark Price & ATH Helpers ─────────────────────────────── */
-export async function insertMarkPriceTick(instrumentName, timestampMs, markPrice, markIv) {
+export async function insertMarkPriceTick(instrumentName, timestampMs, markPrice, underlyingPrice, markIv) {
   if (!pool) return;
   await pool.query(
-    "INSERT INTO mark_price_ticks (instrument_name, timestamp_ms, mark_price, mark_iv) VALUES ($1, $2, $3, $4) ON CONFLICT (instrument_name, timestamp_ms) DO NOTHING",
-    [instrumentName, timestampMs, markPrice, markIv]
+    "INSERT INTO mark_price_ticks (instrument_name, timestamp_ms, mark_price, underlying_price, mark_iv) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (instrument_name, timestamp_ms) DO NOTHING",
+    [instrumentName, timestampMs, markPrice, underlyingPrice, markIv]
   );
 }
 
@@ -222,7 +224,7 @@ export async function getActiveTrackedOptions(currentMs) {
 export async function getOptionTicks(instrumentName, fromMs, toMs) {
   if (!pool) return [];
   const result = await pool.query(
-    "SELECT timestamp_ms, mark_price FROM mark_price_ticks WHERE instrument_name = $1 AND timestamp_ms >= $2 AND timestamp_ms <= $3 ORDER BY timestamp_ms ASC",
+    "SELECT timestamp_ms, mark_price, underlying_price FROM mark_price_ticks WHERE instrument_name = $1 AND timestamp_ms >= $2 AND timestamp_ms <= $3 ORDER BY timestamp_ms ASC",
     [instrumentName, fromMs, toMs]
   );
   return result.rows;
