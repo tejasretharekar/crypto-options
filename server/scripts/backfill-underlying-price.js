@@ -95,33 +95,28 @@ async function backfill(isDryRun) {
     price: allPClose[i]
   })).sort((a, b) => a.ts - b.ts);
 
-  // 3. Discover affected instruments to process batch by batch
-  const affectedInstrumentsResult = await pool.query(`
-    SELECT instrument_name, COUNT(*) as null_count
-    FROM mark_price_ticks 
-    WHERE underlying_price IS NULL 
-    GROUP BY instrument_name
-  `);
-  
-  const instruments = affectedInstrumentsResult.rows;
-  console.log(`[Stats] Found ${instruments.length} instruments needing backfill.`);
-
+  // 3. Process all NULL ticks using keyset pagination
   let totalMapped = 0;
   let totalUnmapped = 0;
   let totalUpdates = 0;
+  let totalProcessed = 0;
+  let lastId = 0;
+  const batchSize = 100000;
 
-  // Process instrument by instrument to control memory usage while reusing the global BTC history
-  for (let i = 0; i < instruments.length; i++) {
-    const instName = instruments[i].instrument_name;
-    const nullCount = Number(instruments[i].null_count);
-    
-    console.log(`[Process] [${i + 1}/${instruments.length}] ${instName} - ${nullCount} ticks`);
+  console.log(`[Process] Starting keyset pagination processing (Batch size: ${batchSize})...`);
 
+  while (true) {
     const ticksResult = await pool.query(
-      'SELECT id, timestamp_ms FROM mark_price_ticks WHERE instrument_name = $1 AND underlying_price IS NULL ORDER BY timestamp_ms ASC',
-      [instName]
+      'SELECT id, timestamp_ms FROM mark_price_ticks WHERE underlying_price IS NULL AND id > $1 ORDER BY id ASC LIMIT $2',
+      [lastId, batchSize]
     );
+    
     const ticks = ticksResult.rows;
+    if (ticks.length === 0) {
+      break; // No more rows to process
+    }
+
+    lastId = ticks[ticks.length - 1].id;
 
     let mappedCount = 0;
     let unmappedCount = 0;
@@ -169,16 +164,17 @@ async function backfill(isDryRun) {
 
     totalMapped += mappedCount;
     totalUnmapped += unmappedCount;
+    totalProcessed += ticks.length;
 
     if (!isDryRun && updates.length > 0) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
         
-        // Execute updates in batches to avoid huge queries
-        const batchSize = 1000;
-        for (let b = 0; b < updates.length; b += batchSize) {
-          const batch = updates.slice(b, b + batchSize);
+        // Execute updates in smaller sub-batches to avoid huge queries
+        const subBatchSize = 1000;
+        for (let b = 0; b < updates.length; b += subBatchSize) {
+          const batch = updates.slice(b, b + subBatchSize);
           
           let queryStr = 'UPDATE mark_price_ticks SET underlying_price = c.price FROM (VALUES ';
           let values = [];
@@ -196,18 +192,20 @@ async function backfill(isDryRun) {
         totalUpdates += updates.length;
       } catch (err) {
         await client.query('ROLLBACK');
-        console.error(`[Error] DB Update failed for ${instName}:`, err);
+        console.error(`[Error] DB Update failed at batch ending with ID ${lastId}:`, err);
       } finally {
         client.release();
       }
     }
+
+    const currentMappingPercentage = ((totalMapped / totalProcessed) * 100).toFixed(2);
+    console.log(`[Process] Processed ${totalProcessed} / ${totalNullTicks} ticks | Mapped: ${totalMapped} | Unmapped: ${totalUnmapped} | ${currentMappingPercentage}% mapped`);
   }
 
   const mappingPercentage = totalNullTicks > 0 ? ((totalMapped / totalNullTicks) * 100).toFixed(2) : '0.00';
 
   console.log('\n========================================');
-  console.log(`[Summary] Total Instruments Processed: ${instruments.length}`);
-  console.log(`[Summary] Total NULL Ticks: ${totalNullTicks}`);
+  console.log(`[Summary] Total NULL Ticks Processed: ${totalProcessed} (Expected: ${totalNullTicks})`);
   console.log(`[Summary] Timestamp Range: ${globalMinTs} - ${globalMaxTs}`);
   console.log(`[Summary] Total Mapped Ticks: ${totalMapped}`);
   console.log(`[Summary] Total Unmapped Ticks: ${totalUnmapped}`);
